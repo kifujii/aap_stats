@@ -6,6 +6,8 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 
 ## 目次
 
+- [置き場所の全体像](#置き場所の全体像)（[設定ファイルを探す順番](#設定ファイルを探す順番)）
+
 **導入（管理者が 1 回だけ行う）**
 
 - [1. 動作環境を確かめる](#1-動作環境を確かめる)
@@ -20,6 +22,7 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 
 **任意の設定**（中身は折りたたんでいます）
 
+- [root 権限がない場合はホームに置く](#root-権限がない場合はホームに置く)
 - [グループでトークンを読めるユーザーを絞る](#グループでトークンを読めるユーザーを絞る)
 - [エイリアスでどこからでも実行する](#エイリアスでどこからでも実行する)
 - [cron で定期実行する](#cron-で定期実行する)
@@ -44,6 +47,18 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 
 置き場所は変えられます。以降は上の表の場所で説明します。
 
+### 設定ファイルを探す順番
+
+ツールは、設定ファイルを次の順で探し、最初に見つかったものを使います。
+
+1. `--config` オプションで指定した場所
+2. 環境変数 `AAPSTATS_CONFIG` で指定した場所
+3. どちらもなければ、実行したユーザーの `~/.config/aapstats/config.ini`
+
+導入手順では、2 の `AAPSTATS_CONFIG` で `/etc/aapstats/config.ini` を指定し、全ユーザーで同じ設定を使います（手順 6）。
+
+root 権限がなく、`/etc` や `/opt` にディレクトリを作れない場合は、3 の既定の場所を使います。資材、設定、トークン、履歴をすべて自分のホームに置けば、root 権限なしで使えます。手順は「[root 権限がない場合はホームに置く](#root-権限がない場合はホームに置く)」にあります。
+
 ## 導入（管理者が 1 回だけ行う）
 
 ### 1. 動作環境を確かめる
@@ -64,7 +79,7 @@ RHEL では `subscription-manager` が `requests` に依存しているため、
 
 インターネットにつながる端末で、GitHub のリポジトリの画面から「Code」→「Download ZIP」を選び、`aap_stats-main.zip` をダウンロードします。このファイルを、許可された方法で閉域の環境へ持ち込みます。
 
-閉域の環境で展開します。zip の中には `aap_stats-main` というディレクトリが入っているので、展開してから名前を `aapstats` に変えます。
+閉域の環境で展開します。root 権限がなく `/opt` に置けない場合は、「[root 権限がない場合はホームに置く](#root-権限がない場合はホームに置く)」の手順を使います。zip の中には `aap_stats-main` というディレクトリが入っているので、展開してから名前を `aapstats` に変えます。
 
 ```
 sudo unzip -q aap_stats-main.zip -d /opt
@@ -99,6 +114,8 @@ admin のトークンを使うこともできますが、次の 2 つの理由�
 </details>
 
 ### 4. 設定ファイルを置く
+
+root 権限がなく `/etc` にディレクトリを作れない場合は、手順 4〜6 の代わりに「[root 権限がない場合はホームに置く](#root-権限がない場合はホームに置く)」の手順を使います。
 
 ```
 sudo install -d -m 755 /etc/aapstats
@@ -150,6 +167,73 @@ python3 -m aapstats --profile source info
 - 毎回ディレクトリを移動するのが手間なら、「[エイリアスでどこからでも実行する](#エイリアスでどこからでも実行する)」を設定します。
 
 ## 任意の設定
+
+### root 権限がない場合はホームに置く
+
+<details>
+<summary>手順を表示</summary>
+
+root 権限がなく、`/opt` や `/etc` にディレクトリを作れない場合は、すべてを自分のホームに置きます。設定ファイルを既定の場所（`~/.config/aapstats/config.ini`）に置くので、`AAPSTATS_CONFIG` の指定は要りません。
+
+| もの | 置き場所 |
+|---|---|
+| 資材 | `~/aapstats` |
+| 設定ファイル | `~/.config/aapstats/config.ini` |
+| AAP のトークン | `~/.config/aapstats/source.token` |
+| ジョブ履歴 | `~/.local/share/aapstats/source.sqlite` |
+
+この置き方では、設定とトークンを自分だけが読めるようにします（権限 600）。ほかのユーザーと共有はしません。ほかのユーザーも使う場合は、各自が同じ手順で自分のホームに置きます。
+
+**1. 資材を置く**（手順 2 の代わり）
+
+```
+unzip -q aap_stats-main.zip -d ~
+mv ~/aap_stats-main ~/aapstats
+```
+
+**2. 設定ファイルを置く**（手順 4 の代わり）
+
+```
+mkdir -p -m 700 ~/.config/aapstats
+install -m 600 ~/aapstats/config.ini.example ~/.config/aapstats/config.ini
+vi ~/.config/aapstats/config.ini
+```
+
+`host` に接続先を、`token_file` にトークンのファイルを書きます。自分だけが読む設定なので、`~` を使って書けます。
+
+```
+[source]
+host = https://aap-source.example.com
+token_file = ~/.config/aapstats/source.token
+```
+
+**3. トークンを保存する**（手順 5 の代わり）
+
+```
+install -m 600 /dev/null ~/.config/aapstats/source.token
+read -rs AAPTOK && printf '%s' "$AAPTOK" > ~/.config/aapstats/source.token && unset AAPTOK
+```
+
+**4. 実行する**（手順 6 の代わり）
+
+```
+cd ~/aapstats
+python3 -m aapstats --profile source info
+```
+
+**エイリアスと cron の書き方**
+
+資材の場所が `~/aapstats` になり、`AAPSTATS_CONFIG` が要らなくなります。
+
+```
+# エイリアス（~/.bashrc に追加）
+alias aapstats='PYTHONPATH=$HOME/aapstats python3 -m aapstats'
+
+# cron（crontab -e で追加）
+0 2 * * * PYTHONPATH=$HOME/aapstats /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
+```
+
+</details>
 
 ### グループでトークンを読めるユーザーを絞る
 
