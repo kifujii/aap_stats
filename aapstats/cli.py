@@ -86,15 +86,35 @@ def build_parser():
         help="リソースの一覧を出す",
         description="リソースの一覧を出します。参照先は ID ではなく名前で表示します。",
         epilog="例:\n  aapstats list job_templates\n  aapstats list credentials --wide --format csv -o creds.csv\n"
-        "  aapstats list projects --columns name,scm_url,used_by_templates",
+        "  aapstats list projects --columns name,scm_url,used_by_templates\n"
+        "  aapstats list job_templates --unused-days 90 --orphan\n"
+        "  aapstats list job_templates --since 2026-08-01 --max-runs 0\n"
+        "  aapstats list job_templates --columns name,run_count --sort=-run_count --limit 10\n"
+        "  aapstats list credentials --unreferenced\n"
+        "  aapstats list job_templates --uses-credential linux-ssh",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_list.add_argument("resource", choices=RESOURCE_NAMES, metavar="<resource>", help="対象のリソース: " + ", ".join(RESOURCE_NAMES))
     g = p_list.add_argument_group("列")
     g.add_argument("--columns", metavar="COLS", help="出す列をカンマ区切りで指定する（例: id,name,last_job_run）")
     g.add_argument("--wide", action="store_true", help="すべての列を出す")
+    from . import filters
+
+    filters.add_arguments(p_list)
     _add_common(p_list, suppress=True)
     p_list.set_defaults(handler="list")
+
+    p_deps = sub.add_parser(
+        "deps",
+        help="テンプレートを移行するときに一緒に必要なリソースを出す",
+        description="ジョブテンプレートまたはワークフローを 1 つ指定し、移行先で動かすために一緒に移行が必要なリソースをツリーで出します。",
+        epilog="例:\n  aapstats deps job_template write-note-linux\n  aapstats deps workflow_job_template 23 --format csv -o deps.csv",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_deps.add_argument("resource", metavar="<resource>", help="job_template（jt）または workflow_job_template（wfjt）")
+    p_deps.add_argument("target", metavar="<name|id>", help="テンプレートの名前または ID")
+    _add_common(p_deps, suppress=True)
+    p_deps.set_defaults(handler="deps")
     return parser
 
 
@@ -115,6 +135,10 @@ def _handler(name):
         from .commands import info
 
         return info.run
+    if name == "deps":
+        from .commands import deps
+
+        return deps.run
     if name == "list":
         from .commands import list_cmd
 

@@ -75,6 +75,50 @@ python3 -m aapstats --profile source list projects --columns name,scm_url,used_b
 - `--format json` のときは、`--columns` を指定しない限りすべての列を出します。
 - 認証情報の入力値（`inputs`）は、どの形式でも出力しません。
 
+#### 絞り込み
+
+```
+# 90 日以上実行されておらず、有効なスケジュールからもワークフローからも呼ばれていないテンプレート
+python3 -m aapstats list job_templates --unused-days 90 --orphan
+
+# 8 月以降に一度も実行されていないテンプレート（実行回数はテンプレートごとに API で数える）
+python3 -m aapstats list job_templates --since 2026-08-01 --max-runs 0
+
+# 実行回数の多い順に 10 件（降順は --sort=-列名 と = でつなぐ）
+python3 -m aapstats list job_templates --columns name,run_count --sort=-run_count --limit 10
+
+# どこからも使われていない認証情報（組み込みのものは除く）
+python3 -m aapstats list credentials --unreferenced
+
+# 認証情報 linux-ssh を使っているテンプレート（名前か ID で指定）
+python3 -m aapstats list job_templates --uses-credential linux-ssh
+```
+
+| 種類 | オプション | 対象 |
+|---|---|---|
+| 共通 | `--org`、`--name`、`--name-regex`、`--created-before/after`、`--modified-before/after`、`--sort`、`--limit` | すべて |
+| 利用状況 | `--unused-days`、`--never-run`、`--last-status`、`--min-runs`、`--max-runs`、`--since` | テンプレート |
+| 参照関係 | `--orphan`、`--no-schedule` | テンプレート |
+| 参照関係 | `--unreferenced` | プロジェクト、インベントリ、認証情報、実行環境 |
+| 逆引き | `--uses-project`、`--uses-inventory`、`--uses-credential`、`--uses-ee` | テンプレート |
+
+- 複数の条件を指定したときは、すべてを満たすものを出します。
+- `--unused-days` は、テンプレートの最終実行日時（`last_job_run`）で判定します。`last_job_run` は、古いジョブ履歴が削除されても残ります。
+- `--orphan` は、**有効な**スケジュールだけを数えます。無効なスケジュールはテンプレートを起動しないためです。スケジュールが 1 つもないものは `--no-schedule` で絞り込みます。
+
+### deps
+
+ジョブテンプレートまたはワークフローを 1 つ指定し、移行先で動かすために一緒に移行が必要なリソースを出します。
+
+```
+python3 -m aapstats deps workflow_job_template "月次パッチ適用"
+python3 -m aapstats deps jt 19 --format csv -o deps.csv
+```
+
+- 表示形式が `table` のときは、ツリーと、種類ごとにまとめた一覧を出します。同じリソースが 2 回目以降に出てきたときは、中身を展開せず「上に展開済み」と表示します。
+- カスタムの認証情報タイプには「移行先で作り直しが必要」と注記します。
+- `csv` は種類ごとにまとめた一覧だけを、`json` はツリーと一覧の両方を出します。
+
 ## テスト
 
 ```

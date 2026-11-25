@@ -62,12 +62,27 @@ class Context:
 
     # -------------------------------------------------------------- 数え上げ
 
-    def schedules_by_template(self):
+    def schedules_by_template(self, enabled_only=False):
         c = Counter()
         for s in self.items("schedules"):
-            if s.get("unified_job_template"):
+            if s.get("unified_job_template") and (s.get("enabled") or not enabled_only):
                 c[s["unified_job_template"]] += 1
         return c
+
+    def template_orgs(self):
+        """テンプレート類（unified_job_template）の ID → 組織名。
+
+        unified_job_template の ID は、ジョブテンプレート、ワークフロー、プロジェクト、
+        インベントリソースで共通の番号体系のため、1 つの辞書にまとめられる。
+        """
+        orgs = {}
+        for name in ("job_templates", "workflow_job_templates", "projects"):
+            for x in self.items(name):
+                orgs[x["id"]] = _sf(x, "organization", "name")
+        inv_org = {i["id"]: _sf(i, "organization", "name") for i in self.items("inventories")}
+        for src in self.items("inventory_sources"):
+            orgs[src["id"]] = inv_org.get(src.get("inventory"))
+        return orgs
 
     def workflows_by_node_template(self):
         """ノードが呼び出すテンプレートの ID → 呼び出し元ワークフロー名の集合。"""
@@ -142,7 +157,11 @@ COMMON_META = ["description", "created", "created_by", "modified", "modified_by"
 
 
 def _prep_jt(ctx):
-    return {"schedules": ctx.schedules_by_template(), "workflows": ctx.workflows_by_node_template()}
+    return {
+        "schedules": ctx.schedules_by_template(),
+        "enabled_schedules": ctx.schedules_by_template(enabled_only=True),
+        "workflows": ctx.workflows_by_node_template(),
+    }
 
 
 def _build_jt(t, ctx, pre):
@@ -159,6 +178,7 @@ def _build_jt(t, ctx, pre):
         "last_job_run": t.get("last_job_run"),
         "last_job_status": t.get("status"),
         "schedule_count": pre["schedules"].get(t["id"], 0),
+        "enabled_schedule_count": pre["enabled_schedules"].get(t["id"], 0),
         "used_in_workflows": sorted(pre["workflows"].get(t["id"], ())),
         "job_type": t.get("job_type"),
         "survey_enabled": t.get("survey_enabled"),
@@ -185,6 +205,7 @@ def _build_jt(t, ctx, pre):
 def _prep_wfjt(ctx):
     return {
         "schedules": ctx.schedules_by_template(),
+        "enabled_schedules": ctx.schedules_by_template(enabled_only=True),
         "workflows": ctx.workflows_by_node_template(),
         "nodes": ctx.nodes_by_workflow(),
     }
@@ -203,6 +224,7 @@ def _build_wfjt(w, ctx, pre):
         "last_job_run": w.get("last_job_run"),
         "last_job_status": w.get("status"),
         "schedule_count": pre["schedules"].get(w["id"], 0),
+        "enabled_schedule_count": pre["enabled_schedules"].get(w["id"], 0),
         "used_in_workflows": sorted(pre["workflows"].get(w["id"], ())),
         "survey_enabled": w.get("survey_enabled"),
         "webhook_service": w.get("webhook_service") or None,
@@ -221,10 +243,15 @@ def _build_wfjt(w, ctx, pre):
 # ---------------------------------------------------------------- スケジュール
 
 
+def _prep_schedule(ctx):
+    return {"orgs": ctx.template_orgs()}
+
+
 def _build_schedule(s, ctx, pre):
     return {
         "id": s["id"],
         "name": s["name"],
+        "organization": pre["orgs"].get(s.get("unified_job_template")),
         "template": _sf(s, "unified_job_template", "name"),
         "template_type": _sf(s, "unified_job_template", "unified_job_type"),
         "enabled": s.get("enabled"),
@@ -244,7 +271,13 @@ def _build_schedule(s, ctx, pre):
 
 
 def _prep_project(ctx):
-    return {"refs": ctx.template_refs(), "schedules": ctx.schedules_by_template()}
+    by_source = Counter(s["source_project"] for s in ctx.items("inventory_sources") if s.get("source_project"))
+    return {
+        "refs": ctx.template_refs(),
+        "schedules": ctx.schedules_by_template(),
+        "sources": by_source,
+        "workflows": ctx.workflows_by_node_template(),
+    }
 
 
 def _build_project(p, ctx, pre):
@@ -258,6 +291,8 @@ def _build_project(p, ctx, pre):
         "last_updated": p.get("last_updated"),
         "status": p.get("status"),
         "used_by_templates": pre["refs"]["project"].get(p["id"], 0),
+        "used_by_inventory_sources": pre["sources"].get(p["id"], 0),
+        "used_in_workflows": sorted(pre["workflows"].get(p["id"], ())),
         "scm_credential": _sf(p, "credential", "name"),
         "default_environment": _sf(p, "default_environment", "name"),
         "scm_update_on_launch": p.get("scm_update_on_launch"),
@@ -280,7 +315,7 @@ def _prep_inventory(ctx):
     sources = defaultdict(list)
     for src in ctx.items("inventory_sources"):
         sources[src.get("inventory")].append(src)
-    return {"refs": ctx.template_refs(), "sources": sources}
+    return {"refs": ctx.template_refs(), "sources": sources, "workflows": ctx.workflows_by_node_template()}
 
 
 def _build_inventory(i, ctx, pre):
@@ -293,6 +328,7 @@ def _build_inventory(i, ctx, pre):
         "total_hosts": i.get("total_hosts"),
         "inventory_sources": [f"{s['name']} ({s.get('source')})" for s in srcs],
         "used_by_templates": pre["refs"]["inventory"].get(i["id"], 0),
+        "used_in_workflows": sorted({wf for s in srcs for wf in pre["workflows"].get(s["id"], ())}),
         "total_groups": i.get("total_groups"),
         "host_filter": i.get("host_filter") or None,
         "description": i.get("description"),
@@ -411,7 +447,7 @@ SPECS = {
         ResourceSpec(
             "job_templates",
             ["id", "name", "organization", "project", "playbook", "inventory", "credentials", "execution_environment", "last_job_run", "last_job_status"],
-            ["schedule_count", "used_in_workflows", "job_type", "survey_enabled", "ask_inventory_on_launch", "ask_credential_on_launch", "webhook_service", "next_job_run"]
+            ["schedule_count", "enabled_schedule_count", "used_in_workflows", "job_type", "survey_enabled", "ask_inventory_on_launch", "ask_credential_on_launch", "webhook_service", "next_job_run"]
             + COMMON_META
             + ["organization_id", "project_id", "inventory_id", "credential_ids", "execution_environment_id"],
             ["schedules", "workflow_job_template_nodes"],
@@ -421,31 +457,32 @@ SPECS = {
         ResourceSpec(
             "workflow_job_templates",
             ["id", "name", "organization", "inventory", "node_count", "node_templates", "last_job_run", "last_job_status"],
-            ["schedule_count", "used_in_workflows", "survey_enabled", "webhook_service", "next_job_run"] + COMMON_META + ["organization_id", "inventory_id", "node_template_ids"],
+            ["schedule_count", "enabled_schedule_count", "used_in_workflows", "survey_enabled", "webhook_service", "next_job_run"] + COMMON_META + ["organization_id", "inventory_id", "node_template_ids"],
             ["schedules", "workflow_job_template_nodes"],
             _build_wfjt,
             _prep_wfjt,
         ),
         ResourceSpec(
             "schedules",
-            ["id", "name", "template", "template_type", "enabled", "next_run", "rrule"],
+            ["id", "name", "organization", "template", "template_type", "enabled", "next_run", "rrule"],
             ["timezone", "dtstart", "dtend", "description", "created", "modified", "template_id"],
-            [],
+            ["job_templates", "workflow_job_templates", "projects", "inventories", "inventory_sources"],
             _build_schedule,
+            _prep_schedule,
         ),
         ResourceSpec(
             "projects",
-            ["id", "name", "organization", "scm_type", "scm_url", "scm_branch", "last_updated", "status", "used_by_templates"],
-            ["scm_credential", "default_environment", "scm_update_on_launch", "schedule_count"] + COMMON_META + ["organization_id", "scm_credential_id", "default_environment_id"],
-            ["job_templates", "workflow_job_templates", "schedules"],
+            ["id", "name", "organization", "scm_type", "scm_url", "scm_branch", "last_updated", "status", "used_by_templates", "used_by_inventory_sources"],
+            ["used_in_workflows", "scm_credential", "default_environment", "scm_update_on_launch", "schedule_count"] + COMMON_META + ["organization_id", "scm_credential_id", "default_environment_id"],
+            ["job_templates", "workflow_job_templates", "schedules", "inventory_sources", "workflow_job_template_nodes"],
             _build_project,
             _prep_project,
         ),
         ResourceSpec(
             "inventories",
             ["id", "name", "organization", "kind", "total_hosts", "inventory_sources", "used_by_templates"],
-            ["total_groups", "host_filter"] + COMMON_META + ["organization_id"],
-            ["job_templates", "workflow_job_templates", "inventory_sources"],
+            ["used_in_workflows", "total_groups", "host_filter"] + COMMON_META + ["organization_id"],
+            ["job_templates", "workflow_job_templates", "inventory_sources", "workflow_job_template_nodes"],
             _build_inventory,
             _prep_inventory,
         ),
