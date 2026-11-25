@@ -77,7 +77,10 @@ def run(client, args, renderer):
 
     path = db_path(args, settings)
     if not os.path.exists(path):
-        raise ConfigError(f"保存先 {path} がありません。先に aapstats sync で履歴を取得してください")
+        hint = ""
+        if settings.profile is None and not args.db:
+            hint = "。--profile の付け忘れの場合は、sync のときと同じプロファイルを指定してください"
+        raise ConfigError(f"保存先 {path} がありません。先に aapstats sync で履歴を取得してください{hint}")
     if args.group_by and args.top:
         raise ConfigError("--group-by と --top は同時に使えません")
     if args.group_by and args.group_by not in GROUPS:

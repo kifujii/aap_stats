@@ -6,7 +6,7 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 
 ## 目次
 
-- [置き場所の全体像](#置き場所の全体像)（[設定ファイルを探す順番](#設定ファイルを探す順番)）
+- [置き場所の全体像](#置き場所の全体像)（[設定ファイルを探す順番](#設定ファイルを探す順番) / [プロファイルの選び方](#プロファイルの選び方)）
 
 **導入（管理者が 1 回だけ行う）**
 
@@ -58,6 +58,61 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 導入手順では、2 の `AAPSTATS_CONFIG` で `/etc/aapstats/config.ini` を指定し、全ユーザーで同じ設定を使います（手順 6）。
 
 root 権限がなく、`/etc` や `/opt` にディレクトリを作れない場合は、3 の既定の場所を使います。資材、設定、トークン、履歴をすべて自分のホームに置けば、root 権限なしで使えます。手順は「[root 権限がない場合はホームに置く](#root-権限がない場合はホームに置く)」にあります。
+
+### プロファイルの選び方
+
+設定ファイルには、接続先ごとに「プロファイル」を書きます。`[source]` や `[target]` の部分がプロファイルの名前です。どのプロファイルを使うかは、`--profile` で指定します。
+
+```
+python3 -m aapstats --profile source info     # [source] の接続先を使う
+python3 -m aapstats --profile target info     # [target] の接続先を使う
+```
+
+**`--profile` を省略したとき**
+
+`[default]` という名前のプロファイルを使います。`[default]` がなければ、登録済みのプロファイルを示すエラーになります。
+
+```
+エラー: プロファイルが指定されていません。--profile で次のいずれかを指定してください: source, target
+```
+
+よく使う AAP のプロファイルを `[default]` という名前にしておくと、`--profile` を省略できます。たとえば移行元をよく使うなら、次のように書きます。
+
+```
+[default]
+# 移行元（--profile を省略したときに使う）
+host = https://aap-source.example.com
+token_file = /etc/aapstats/source.token
+
+[target]
+# 移行先（--profile target で使う）
+host = https://aap-target.example.com
+token_file = /etc/aapstats/target.token
+```
+
+大文字の `[DEFAULT]` でも省略できますが、勧めません。大文字の `[DEFAULT]` に書いた値は、ほかのすべてのプロファイルに引き継がれるためです。たとえば `[DEFAULT]` に移行元の `host` を書き、`[target]` に `host` を書き忘れると、`--profile target` を指定しても移行元につながってしまいます。
+
+**ジョブ履歴のファイル名**
+
+`sync` で保存するジョブ履歴のファイル名は、プロファイルの名前で決まります。
+
+| 指定のしかた | ファイル名 |
+|---|---|
+| `--profile source` | `source.sqlite` |
+| `--profile` を省略して `[default]` を使った | `default.sqlite` |
+| プロファイルを使わず、環境変数 `AAP_HOST` で接続先を指定した | 接続先のホスト名（例: `aap-source.example.com.sqlite`） |
+
+**同じ AAP を 2 つのプロファイルに書いたときの影響**
+
+同じ AAP を、たとえば `[default]` と `[source]` の両方に書くと、次の影響があります。
+
+1. **履歴が 2 つのファイルに分かれます。** `default.sqlite` と `source.sqlite` が別々に作られます。
+2. **AAP への負荷と取得時間が 2 倍になります。** それぞれのプロファイルで `sync` すると、同じ履歴を 2 回取得します。特に初回は残っている履歴をすべて取得するため、影響が大きくなります。手元のディスクの使用量も 2 倍になります。
+3. **`stats` の結果が、使ったプロファイルによって変わります。** cron で一方のプロファイルだけ `sync` していると、もう一方は古い履歴のまま集計されます。どの時点の履歴で集計したかは、`stats` の冒頭の「集計の条件」にある `last_sync`（最終取得日時）で確かめられます。
+
+`list`、`deps`、`report`、`info` は、毎回 AAP から取得するため、この影響は受けません。
+
+同じ AAP は、1 つのプロファイルにだけ書いてください。`--profile` を省略したい場合は、その AAP のプロファイルの名前を `[default]` にします。
 
 ## 導入（管理者が 1 回だけ行う）
 
@@ -130,6 +185,8 @@ sudo vi /etc/aapstats/config.ini
 host = https://aap-source.example.com
 token_file = /etc/aapstats/source.token
 ```
+
+プロファイルの名前を `[default]` にすると、`--profile` を省略できます（「[プロファイルの選び方](#プロファイルの選び方)」）。
 
 この手順では、設定ファイルとトークンを、サーバーにログインできる全ユーザーが読めるようにします。ツールを使うユーザーだけに絞りたい場合は、手順 4 と 5 の代わりに「[グループでトークンを読めるユーザーを絞る](#グループでトークンを読めるユーザーを絞る)」のコマンドを使います。
 
