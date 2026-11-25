@@ -10,9 +10,57 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 - `requests`（必須）
 - `rich`（任意。入っていれば表の表示に使います）
 
+インターネットにつながらない環境を前提に、pip でのインストールは使いません。`requests` が入っているかは、次のコマンドで確かめます。
+
 ```
-pip install requests
+python3 -c 'import requests; print(requests.__version__)'
 ```
+
+RHEL では `subscription-manager` が `requests` に依存しているため、多くの場合は最初から入っています。入っていなければ、社内のリポジトリ（Satellite など）から `sudo dnf install python3-requests` で入れます。
+
+## 資材の配置と実行方法
+
+### 資材を置く
+
+資材は任意のディレクトリに置きます。以降は `/opt/aapstats` に置いた例で説明します。
+
+インターネットにつながらない環境へは、つながる端末で資材を 1 つのファイルにまとめてから持ち込みます。
+
+```
+# インターネットにつながる端末で
+git clone https://github.com/kifujii/aap_stats.git
+cd aap_stats
+git archive --format=tar.gz --prefix=aapstats/ -o aapstats.tar.gz main
+
+# 持ち込んだ先で（/opt/aapstats に展開される）
+sudo tar xzf aapstats.tar.gz -C /opt
+```
+
+### 資材のディレクトリに入って実行する
+
+このツールはインストールせずに使うため、**資材を置いたディレクトリに入ってから実行します。** 別のディレクトリで実行すると、`No module named aapstats` というエラーになります。
+
+```
+cd /opt/aapstats
+python3 -m aapstats --help
+```
+
+### エイリアスでどこからでも実行できるようにする
+
+毎回ディレクトリを移動するのが手間なら、エイリアスを登録します。登録すると、どのディレクトリからでも `aapstats` だけで実行できます。
+
+```
+echo "alias aapstats='PYTHONPATH=/opt/aapstats python3 -m aapstats'" >> ~/.bashrc
+source ~/.bashrc
+aapstats --help
+```
+
+エイリアスを使うときは、次の 2 点に注意してください。
+
+- エイリアスが効くのは、ログインして手でコマンドを打つときだけです。シェルスクリプト、cron、`sudo` の後ろでは効きません。これらの中で使うときは、`cd /opt/aapstats && python3 -m aapstats ...` のように書きます。
+- `-o` で保存するファイルは、資材のディレクトリではなく、コマンドを実行したディレクトリに作られます。
+
+以降の例は `python3 -m aapstats` で書いています。エイリアスを登録した場合は、`aapstats` に読み替えてください。
 
 ## 接続の設定
 
@@ -20,7 +68,7 @@ pip install requests
 
 ```
 mkdir -p ~/.config/aapstats
-cp config.ini.example ~/.config/aapstats/config.ini
+cp /opt/aapstats/config.ini.example ~/.config/aapstats/config.ini
 chmod 600 ~/.config/aapstats/config.ini
 ```
 
@@ -199,6 +247,9 @@ python3 -m aapstats --profile source report --unused-days 180 --only review,unne
 
 ## テスト
 
+資材のディレクトリで実行します。
+
 ```
+cd /opt/aapstats
 python3 -m unittest discover -s tests -t .
 ```
