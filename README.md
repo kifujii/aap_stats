@@ -97,25 +97,44 @@ aapstats --help
 
 このツール専用のユーザーを AAP に作り、システム監査者（System Auditor）の権限を付けてから、そのユーザーで Read スコープのトークンを作ることを勧めます。admin のトークンを使うこともできますが、次の 2 つの理由から勧めません。
 
-- admin のトークンは、Read スコープでも admin が見られるものをすべて読めます。このツールを使える Linux ユーザー全員が、その範囲を読めることになります。
+- admin のトークンは、Read スコープでも admin が見られるものをすべて読めます。トークンのファイルを読める Linux ユーザー全員が、その範囲を読めることになります。
 - 専用のユーザーにしておくと、AAP の操作の記録で、このツールからのアクセスだと見分けられます。
 
-**2. ツールを使うユーザーのグループを作る**
+**2. （任意）ツールを使うユーザーのグループを作る**
 
-設定ファイルとトークンは、このグループのユーザーだけが読めるようにします。
+ツールが動くために必要なのは、実行したユーザーが設定ファイルとトークンのファイルを読めることだけです。グループは必須ではありません。
+
+グループを作るかどうかで、トークンを読めるユーザーの範囲が変わります。
+
+| | トークンを読めるユーザー | 設定ファイルとトークンの権限 |
+|---|---|---|
+| グループを作る | グループに入れたユーザーだけ | 640（持ち主の root とグループだけが読める） |
+| グループを作らない | **サーバーにログインできる全ユーザー** | 644（全ユーザーが読める） |
+
+グループを作らない場合、このツールを使わないユーザーも AAP のトークンを読めるようになり、そのトークンで AAP の API を読めます。サーバーにログインできるのが、ツールを使ってよい人だけであれば、グループを作らなくても問題ありません。そうでなければ、グループを作ることを勧めます。
+
+グループを作る場合は、次のコマンドを実行します。グループへの追加は、そのユーザーが次にログインしたときから有効になります。
 
 ```
 sudo groupadd aapstats
 sudo usermod -aG aapstats <ユーザー名>    # ツールを使うユーザーごとに実行する
 ```
 
-グループへの追加は、そのユーザーが次にログインしたときから有効になります。
-
 **3. 設定ファイルを置く**
+
+グループを作った場合:
 
 ```
 sudo install -d -m 750 -g aapstats /etc/aapstats
 sudo install -m 640 -g aapstats /opt/aapstats/config.ini.example /etc/aapstats/config.ini
+sudo vi /etc/aapstats/config.ini
+```
+
+グループを作らない場合:
+
+```
+sudo install -d -m 755 /etc/aapstats
+sudo install -m 644 /opt/aapstats/config.ini.example /etc/aapstats/config.ini
 sudo vi /etc/aapstats/config.ini
 ```
 
@@ -129,10 +148,19 @@ token_file = /etc/aapstats/source.token
 
 **4. トークンを保存する**
 
-最初に権限 640 の空のファイルを作り、そこへ書き込みます。トークンを書き込んでから権限を変えると、その間だけ他のユーザーにも読める状態になるためです。`read -rs` で入力した値は画面に表示されず、シェルの履歴にも残りません。
+最初に、決めた権限で空のファイルを作り、そこへ書き込みます。トークンを書き込んでから権限を変えると、その間だけ意図しないユーザーにも読める状態になるためです。`read -rs` で入力した値は画面に表示されず、シェルの履歴にも残りません。
+
+グループを作った場合:
 
 ```
 sudo install -m 640 -g aapstats /dev/null /etc/aapstats/source.token
+read -rs AAPTOK && printf '%s' "$AAPTOK" | sudo tee /etc/aapstats/source.token > /dev/null && unset AAPTOK
+```
+
+グループを作らない場合:
+
+```
+sudo install -m 644 /dev/null /etc/aapstats/source.token
 read -rs AAPTOK && printf '%s' "$AAPTOK" | sudo tee /etc/aapstats/source.token > /dev/null && unset AAPTOK
 ```
 
