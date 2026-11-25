@@ -78,6 +78,23 @@ def build_parser():
     )
     _add_common(p_info, suppress=True)
     p_info.set_defaults(handler="info")
+
+    from .commands.list_cmd import RESOURCE_NAMES
+
+    p_list = sub.add_parser(
+        "list",
+        help="リソースの一覧を出す",
+        description="リソースの一覧を出します。参照先は ID ではなく名前で表示します。",
+        epilog="例:\n  aapstats list job_templates\n  aapstats list credentials --wide --format csv -o creds.csv\n"
+        "  aapstats list projects --columns name,scm_url,used_by_templates",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_list.add_argument("resource", choices=RESOURCE_NAMES, metavar="<resource>", help="対象のリソース: " + ", ".join(RESOURCE_NAMES))
+    g = p_list.add_argument_group("列")
+    g.add_argument("--columns", metavar="COLS", help="出す列をカンマ区切りで指定する（例: id,name,last_job_run）")
+    g.add_argument("--wide", action="store_true", help="すべての列を出す")
+    _add_common(p_list, suppress=True)
+    p_list.set_defaults(handler="list")
     return parser
 
 
@@ -98,6 +115,10 @@ def _handler(name):
         from .commands import info
 
         return info.run
+    if name == "list":
+        from .commands import list_cmd
+
+        return list_cmd.run
     raise ValueError(name)
 
 
