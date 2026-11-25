@@ -48,6 +48,7 @@ RESOURCES = {
         Resource("schedules", CONTROLLER, "schedules/", "スケジュール"),
         Resource("projects", CONTROLLER, "projects/", "プロジェクト"),
         Resource("inventories", CONTROLLER, "inventories/", "インベントリ"),
+        Resource("inventory_sources", CONTROLLER, "inventory_sources/", "インベントリソース"),
         Resource("credentials", CONTROLLER, "credentials/", "認証情報"),
         Resource("execution_environments", CONTROLLER, "execution_environments/", "実行環境"),
         Resource("organizations", CONTROLLER, "organizations/", "組織"),

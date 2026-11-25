@@ -30,3 +30,6 @@ work/
 .vscode/
 .idea/
 .claude/settings.local.json
+
+# Playwright の作業ファイル
+.playwright-mcp/
