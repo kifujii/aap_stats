@@ -125,6 +125,40 @@ python3 -m aapstats deps jt 19 --format csv -o deps.csv
 - カスタムの認証情報タイプには「移行先で作り直しが必要」と注記します。
 - `csv` は種類ごとにまとめた一覧だけを、`json` はツリーと一覧の両方を出します。
 
+### sync
+
+ジョブ履歴を手元の SQLite に保存します。`stats` はこの保存したデータから統計を出します。
+
+```
+python3 -m aapstats --profile source sync
+python3 -m aapstats --profile source sync --since 2026-08-01 --kinds job,workflow_job,project_update
+```
+
+- 保存先の既定は `~/.local/share/aapstats/<プロファイル名>.sqlite` です。`--db` で変えられます。接続先ごとにファイルを分け、別の接続先の履歴が混ざりそうなときはエラーにします。
+- 初回は残っている履歴をすべて取得します。2 回目以降は、新しいジョブと、前回の時点で終わっていなかったジョブだけを取得します。
+- 1 ページ（200 件）ごとに保存するので、途中で止まっても、次回は続きから取得します。進捗は 10 秒ごとに、残り件数と完了までの目安とともに表示します。
+- AAP 側で古い履歴が削除されても、保存済みの履歴は消しません。定期的に `sync` すれば、AAP の保持期間より長い期間の統計を取れます。
+- 保存したファイルにはお客様環境のデータが含まれるため、権限を 600 にします。
+
+### stats
+
+保存したジョブ履歴から統計を出します。AAP には接続しないため、トークンがなくても動きます。
+
+```
+python3 -m aapstats --profile source stats
+python3 -m aapstats --profile source stats --since 2026-08-01 --until 2026-11-01
+python3 -m aapstats --profile source stats --group-by month
+python3 -m aapstats --profile source stats --top 10
+python3 -m aapstats --profile source stats --format csv -o stats.csv --wide
+```
+
+- 既定はテンプレートごとの統計です。実行回数、結果の内訳と成功率、実行時間（平均・最大・合計）、起動方法の内訳（手動、スケジュール、ワークフロー、再実行、コールバック、Webhook）、手動で実行したユーザー数、期間内の初回・最終の実行日時を出します。
+- 削除済みのテンプレートの履歴は、起動した時点のテンプレート名で集計し、`template_deleted` を `true` にします。
+- `--group-by` で集計の単位を変えます。`organization`、`project`、`inventory`、`execution_environment`、`credential`、`day`、`week`、`month`、`hour`、`weekday` を指定できます。日時の区切りは `--tz`（既定: Asia/Tokyo）に従います。
+- `--top N` で、実行回数、失敗率、平均実行時間の上位 N 件を出します。`--by` で 1 つに絞れます。`--min-runs` で、実行回数の少ないテンプレートを除けます。
+- 結果の冒頭に、集計した期間、保存済みの期間、ジョブ数を出します。
+- 100 万件の履歴で、テンプレート別の集計は 15 秒前後、メモリは 30MB 程度です（認証情報別は 30 秒前後）。
+
 ## テスト
 
 ```
