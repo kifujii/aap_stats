@@ -63,6 +63,14 @@ RESOURCES = {
         Resource(
             "authenticators", GATEWAY_SVC, "authenticators/", "Authentication Method", flavors=(GATEWAY,)
         ),
+        Resource(
+            "authenticator_maps", GATEWAY_SVC, "authenticator_maps/", "認証のマッピング", flavors=(GATEWAY,)
+        ),
+        Resource("gateway_teams", GATEWAY_SVC, "teams/", "チーム（Gateway）", flavors=(GATEWAY,)),
+        # 2.5 以降のロール割り当て（DAB RBAC）。2.4 以前は teams/<id>/roles/ から取る
+        Resource(
+            "role_team_assignments", CONTROLLER, "role_team_assignments/", "チームのロール割り当て", flavors=(GATEWAY,)
+        ),
         # 統計の材料
         Resource("jobs", CONTROLLER, "jobs/", "ジョブ実行履歴"),
         Resource("workflow_jobs", CONTROLLER, "workflow_jobs/", "ワークフロー実行履歴"),

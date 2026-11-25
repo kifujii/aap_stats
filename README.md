@@ -70,10 +70,16 @@ python3 -m aapstats --profile source list projects --columns name,scm_url,used_b
 | `credentials` | 認証情報タイプ、テンプレート・プロジェクト・インベントリソース・組織から使われている数 |
 | `execution_environments` | イメージ、テンプレート・プロジェクト・組織・インベントリソースから使われている数 |
 | `organizations` | 配下の各リソースの数 |
+| `teams` | メンバー数、ロールとその対象（例: `JobTemplate Execute: patch`） |
+| `credential_types` | カスタム認証情報タイプの入力項目名、秘密の入力項目名、インジェクターの環境変数名、使っている認証情報の数 |
+| `authenticators` | Authentication Method の種類、有効か無効か、優先順位、LDAP のサーバー URI・Bind DN・検索条件、マッピング数 |
+| `authenticator_maps` | 認証のマッピング（組織・チーム・ロールへの対応と条件） |
 
 - `--wide` ですべての列を、`--columns` で指定した列だけを出します。
 - `--format json` のときは、`--columns` を指定しない限りすべての列を出します。
 - 認証情報の入力値（`inputs`）は、どの形式でも出力しません。
+- Authentication Method とマッピングの設定のうち、名前に PASSWORD、SECRET、TOKEN、KEY、PRIVATE を含む項目と、値が `$encrypted$` の項目は伏せます。伏せた項目の名前は `masked_keys` 列に出します。移行先で入力し直す必要がある項目です。
+- AAP 2.4 以前では、Authentication Method とマッピングを Controller の LDAP 設定から作ります。追加の LDAP サーバー（1〜5）も 1 行ずつ出します。
 
 #### 絞り込み
 

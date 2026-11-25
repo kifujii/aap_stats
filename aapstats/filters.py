@@ -119,6 +119,8 @@ def validate(args, resource):
         raise ConfigError(f"--unreferenced は {', '.join(REFERENCEABLE)} でだけ使えます")
     if args.org and resource == "organizations":
         raise ConfigError("--org は organizations では使えません。--name を使ってください")
+    if args.org and resource in ("credential_types", "authenticators"):
+        raise ConfigError(f"{resource} は組織に属さないため、--org は使えません")
     for opt in ("unused_days", "min_runs", "max_runs", "limit"):
         v = getattr(args, opt)
         if v is not None and v < 0:

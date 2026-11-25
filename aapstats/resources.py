@@ -9,7 +9,7 @@
 import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 log = logging.getLogger("aapstats")
 
@@ -43,7 +43,8 @@ class Context:
         self._cache: Dict[str, List[dict]] = {}
 
     def prefetch(self, names):
-        names = [n for n in dict.fromkeys(names) if n not in self._cache]
+        # このバージョンの API にないもの（例: 2.4 以前の Gateway）は、使う側で扱う
+        names = [n for n in dict.fromkeys(names) if n not in self._cache and self.client.layout.supports(n)]
         if not names:
             return
         log.info("取得しています: %s", ", ".join(names))
@@ -144,6 +145,8 @@ class ResourceSpec:
     build: Callable[[dict, Context], dict]
     # build の前に一度だけ計算する値（行ごとに数え直さないため）
     prepare: Callable[[Context], dict] = field(default=lambda ctx: {})
+    # 一覧の取り方を変えるとき（例: 2.4 以前の Authentication Method は LDAP 設定から作る）
+    fetch: Optional[Callable[[Context], List[dict]]] = None
 
     @property
     def all_columns(self):
@@ -514,13 +517,60 @@ SPECS = {
 }
 
 
+from . import resources_extra as _x  # noqa: E402
+
+SPECS.update(
+    {
+        s.name: s
+        for s in [
+            ResourceSpec(
+                "teams",
+                ["id", "name", "organization", "member_count", "role_count", "roles"],
+                COMMON_META + ["organization_id", "role_targets"],
+                ["role_team_assignments", "gateway_teams"],
+                _x._build_team,
+                _x._prep_team,
+            ),
+            ResourceSpec(
+                "credential_types",
+                ["id", "name", "kind", "input_fields", "secret_fields", "injector_env", "credential_count"],
+                ["credentials", "injector_extra_vars", "injector_files", "injectors"] + COMMON_META,
+                ["credentials"],
+                _x._build_credential_type,
+                _x._prep_credential_type,
+            ),
+            ResourceSpec(
+                "authenticators",
+                ["id", "name", "type", "enabled", "order", "server_uri", "bind_dn", "user_search", "group_search", "map_count"],
+                ["user_dn_template", "group_type", "start_tls", "user_attr_map", "create_objects", "remove_users", "masked_keys", "configuration"]
+                + ["created", "created_by", "modified", "modified_by"],
+                ["authenticator_maps"],
+                _x._build_authenticator,
+                _x._prep_authenticator,
+                fetch=_x.fetch_authenticators,
+            ),
+            ResourceSpec(
+                "authenticator_maps",
+                ["id", "name", "authenticator", "map_type", "organization", "team", "role", "triggers", "revoke"],
+                ["order", "masked_keys", "created", "modified"],
+                ["authenticators"],
+                _x._build_authenticator_map,
+                _x._prep_authenticator_map,
+                fetch=_x.fetch_authenticator_maps,
+            ),
+        ]
+    }
+)
+
+
 def build_rows(client, resource_name):
     spec = SPECS[resource_name]
     ctx = Context(client)
-    ctx.prefetch([resource_name] + spec.prefetch)
+    ctx.prefetch(([] if spec.fetch else [resource_name]) + spec.prefetch)
+    items = spec.fetch(ctx) if spec.fetch else ctx.items(resource_name)
     pre = spec.prepare(ctx)
     rows = []
-    for item in ctx.items(resource_name):
+    for item in items:
         row = spec.build(item, ctx, pre)
         for k in FORBIDDEN_KEYS & row.keys():
             del row[k]
