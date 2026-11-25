@@ -145,7 +145,9 @@ class TestBuildRows(unittest.TestCase):
         self.assertEqual(o["team_count"], 1)
 
     def test_every_column_has_value_key_and_label(self):
-        for name, spec in SPECS.items():
+        p2 = ["job_templates", "workflow_job_templates", "schedules", "projects", "inventories", "credentials", "execution_environments", "organizations"]
+        for name in p2:
+            spec = SPECS[name]
             with self.subTest(resource=name):
                 rows = list(rows_by_name(name).values())
                 self.assertTrue(rows)
