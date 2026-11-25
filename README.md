@@ -64,18 +64,84 @@ aapstats --help
 
 ## 接続の設定
 
-`config.ini.example` を `~/.config/aapstats/config.ini` にコピーし、接続先を書きます。トークンは別ファイルに保存し、権限を 600 にします。
+このツールは、Linux サーバーの各ユーザーが使う前提です。接続先の設定と AAP のトークンは、サーバーに 1 つだけ置き、全ユーザーで共有します。手元に保存するジョブ履歴（`sync` で作る SQLite）は、ユーザーごとに作られます。
+
+| もの | 置き場所 | 持ち主 |
+|---|---|---|
+| 設定ファイル | `/etc/aapstats/config.ini` | 全ユーザーで共有 |
+| AAP のトークン | `/etc/aapstats/<プロファイル名>.token` | 全ユーザーで共有 |
+| ジョブ履歴 | `~/.local/share/aapstats/<プロファイル名>.sqlite` | ユーザーごと |
+
+### 管理者が行うこと
+
+**1. AAP でトークンを作る**
+
+このツール専用のユーザーを AAP に作り、システム監査者（System Auditor）の権限を付けてから、そのユーザーで Read スコープのトークンを作ることを勧めます。admin のトークンを使うこともできますが、次の 2 つの理由から勧めません。
+
+- admin のトークンは、Read スコープでも admin が見られるものをすべて読めます。このツールを使える Linux ユーザー全員が、その範囲を読めることになります。
+- 専用のユーザーにしておくと、AAP の操作の記録で、このツールからのアクセスだと見分けられます。
+
+**2. ツールを使うユーザーのグループを作る**
+
+設定ファイルとトークンは、このグループのユーザーだけが読めるようにします。
 
 ```
-mkdir -p ~/.config/aapstats
-cp /opt/aapstats/config.ini.example ~/.config/aapstats/config.ini
-chmod 600 ~/.config/aapstats/config.ini
+sudo groupadd aapstats
+sudo usermod -aG aapstats <ユーザー名>    # ツールを使うユーザーごとに実行する
 ```
 
-設定ファイルを使わず、環境変数で指定することもできます。
+グループへの追加は、そのユーザーが次にログインしたときから有効になります。
+
+**3. 設定ファイルを置く**
+
+```
+sudo install -d -m 750 -g aapstats /etc/aapstats
+sudo install -m 640 -g aapstats /opt/aapstats/config.ini.example /etc/aapstats/config.ini
+sudo vi /etc/aapstats/config.ini
+```
+
+`host` に接続先を、`token_file` にトークンのファイルを書きます。`token_file` は必ず絶対パスで書いてください。`~` で書くと、コマンドを実行したユーザーのホームディレクトリと解釈され、ユーザーごとに別の場所を探してしまいます。
+
+```
+[source]
+host = https://aap-source.example.com
+token_file = /etc/aapstats/source.token
+```
+
+**4. トークンを保存する**
+
+最初に権限 640 の空のファイルを作り、そこへ書き込みます。トークンを書き込んでから権限を変えると、その間だけ他のユーザーにも読める状態になるためです。`read -rs` で入力した値は画面に表示されず、シェルの履歴にも残りません。
+
+```
+sudo install -m 640 -g aapstats /dev/null /etc/aapstats/source.token
+read -rs AAPTOK && printf '%s' "$AAPTOK" | sudo tee /etc/aapstats/source.token > /dev/null && unset AAPTOK
+```
+
+移行先（`[target]`）も使う場合は、同じ手順で `target.token` を作ります。
+
+### 各ユーザーが行うこと
+
+共通の設定ファイルの場所を、環境変数 `AAPSTATS_CONFIG` で指定します。
+
+```
+echo "export AAPSTATS_CONFIG=/etc/aapstats/config.ini" >> ~/.bashrc
+source ~/.bashrc
+cd /opt/aapstats
+python3 -m aapstats --profile source info
+```
+
+- `AAPSTATS_CONFIG` を設定しないと、ツールは自分のホームの `~/.config/aapstats/config.ini` を探します。
+- `~/.bashrc` は、cron やシェルスクリプトでは読まれません。そこで使うときは、`AAPSTATS_CONFIG=/etc/aapstats/config.ini` をコマンドの前に付けます。
+- ジョブ履歴はユーザーごとに作られます。各ユーザーが `sync` すると、そのたびに AAP から履歴を取得するため、AAP の負荷はユーザーの数だけ増えます。履歴が多い場合は、初回の `sync` に `--since` を付けて、必要な期間だけを取得してください。
+
+### 環境変数
+
+設定ファイルの代わりに、環境変数で指定することもできます。
 
 | 環境変数 | 内容 |
 |---|---|
+| `AAPSTATS_CONFIG` | 設定ファイルのパス（既定: `~/.config/aapstats/config.ini`） |
+| `AAPSTATS_DATA_DIR` | ジョブ履歴の保存先のディレクトリ（既定: `~/.local/share/aapstats`） |
 | `AAP_HOST` | 接続先の URL |
 | `AAP_TOKEN` / `AAP_TOKEN_FILE` | トークン / トークンを保存したファイル |
 | `AAP_USERNAME` / `AAP_PASSWORD` | ユーザー名 / パスワード |
@@ -83,8 +149,6 @@ chmod 600 ~/.config/aapstats/config.ini
 | `AAP_CA_FILE` | CA 証明書のファイル |
 
 パスワードとトークンは、シェルの履歴に残らないよう、コマンドの引数では受け取りません。
-
-実行ユーザーは、システム監査者（System Auditor）以上の権限を持つことを前提としています。
 
 ## 使い方
 
@@ -182,7 +246,7 @@ python3 -m aapstats --profile source sync
 python3 -m aapstats --profile source sync --since 2026-08-01 --kinds job,workflow_job,project_update
 ```
 
-- 保存先の既定は `~/.local/share/aapstats/<プロファイル名>.sqlite` です。`--db` で変えられます。接続先ごとにファイルを分け、別の接続先の履歴が混ざりそうなときはエラーにします。
+- 保存先の既定は、実行したユーザーの `~/.local/share/aapstats/<プロファイル名>.sqlite` です。履歴はユーザーごとに別のファイルになります。`--db` で変えられます。接続先ごとにファイルを分け、別の接続先の履歴が混ざりそうなときはエラーにします。
 - 初回は残っている履歴をすべて取得します。2 回目以降は、新しいジョブと、前回の時点で終わっていなかったジョブだけを取得します。
 - 1 ページ（200 件）ごとに保存するので、途中で止まっても、次回は続きから取得します。進捗は 10 秒ごとに、残り件数と完了までの目安とともに表示します。
 - AAP 側で古い履歴が削除されても、保存済みの履歴は消しません。定期的に `sync` すれば、AAP の保持期間より長い期間の統計を取れます。
