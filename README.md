@@ -24,16 +24,35 @@ RHEL では `subscription-manager` が `requests` に依存しているため、
 
 資材は任意のディレクトリに置きます。以降は `/opt/aapstats` に置いた例で説明します。
 
-インターネットにつながらない環境へは、つながる端末で資材を 1 つのファイルにまとめてから持ち込みます。
+**1. zip をダウンロードする（インターネットにつながる端末で）**
+
+GitHub のリポジトリの画面で「Code」→「Download ZIP」を選び、`aap_stats-main.zip` をダウンロードします。このファイルを、許可された方法で閉域の環境へ持ち込みます。
+
+**2. 展開して配置する（閉域の環境で）**
+
+zip の中には `aap_stats-main` というディレクトリが入っています。展開してから、名前を `aapstats` に変えます。
 
 ```
-# インターネットにつながる端末で
-git clone https://github.com/kifujii/aap_stats.git
-cd aap_stats
-git archive --format=tar.gz --prefix=aapstats/ -o aapstats.tar.gz main
+sudo unzip -q aap_stats-main.zip -d /opt
+sudo mv /opt/aap_stats-main /opt/aapstats
+ls /opt/aapstats        # README.md、aapstats、config.ini.example などがあれば成功
+```
 
-# 持ち込んだ先で（/opt/aapstats に展開される）
-sudo tar xzf aapstats.tar.gz -C /opt
+`unzip` コマンドがない場合は、Python の標準機能で展開できます。
+
+```
+sudo python3 -m zipfile -e aap_stats-main.zip /opt
+sudo mv /opt/aap_stats-main /opt/aapstats
+```
+
+**資材を更新するとき**
+
+新しい zip を同じ手順で展開し、`/opt/aapstats` を置き換えます。設定ファイル（`/etc/aapstats`）と各ユーザーのジョブ履歴（`~/.local/share/aapstats`）は資材のディレクトリの外にあるため、置き換えても消えません。
+
+```
+sudo unzip -q aap_stats-main.zip -d /tmp
+sudo rm -rf /opt/aapstats.old && sudo mv /opt/aapstats /opt/aapstats.old
+sudo mv /tmp/aap_stats-main /opt/aapstats
 ```
 
 ### 資材のディレクトリに入って実行する
@@ -57,7 +76,7 @@ aapstats --help
 
 エイリアスを使うときは、次の 2 点に注意してください。
 
-- エイリアスが効くのは、ログインして手でコマンドを打つときだけです。シェルスクリプト、cron、`sudo` の後ろでは効きません。これらの中で使うときは、`cd /opt/aapstats && python3 -m aapstats ...` のように書きます。
+- エイリアスが効くのは、ログインして手でコマンドを打つときだけです。シェルスクリプト、cron、`sudo` の後ろでは効きません。cron での書き方は「[cron で定期実行する](#cron-で定期実行する)」を参照してください。
 - `-o` で保存するファイルは、資材のディレクトリではなく、コマンドを実行したディレクトリに作られます。
 
 以降の例は `python3 -m aapstats` で書いています。エイリアスを登録した場合は、`aapstats` に読み替えてください。
@@ -131,7 +150,7 @@ python3 -m aapstats --profile source info
 ```
 
 - `AAPSTATS_CONFIG` を設定しないと、ツールは自分のホームの `~/.config/aapstats/config.ini` を探します。
-- `~/.bashrc` は、cron やシェルスクリプトでは読まれません。そこで使うときは、`AAPSTATS_CONFIG=/etc/aapstats/config.ini` をコマンドの前に付けます。
+- `~/.bashrc` は、cron やシェルスクリプトでは読まれません。cron での書き方は「[cron で定期実行する](#cron-で定期実行する)」を参照してください。
 - ジョブ履歴はユーザーごとに作られます。各ユーザーが `sync` すると、そのたびに AAP から履歴を取得するため、AAP の負荷はユーザーの数だけ増えます。履歴が多い場合は、初回の `sync` に `--since` を付けて、必要な期間だけを取得してください。
 
 ### 環境変数
@@ -149,6 +168,52 @@ python3 -m aapstats --profile source info
 | `AAP_CA_FILE` | CA 証明書のファイル |
 
 パスワードとトークンは、シェルの履歴に残らないよう、コマンドの引数では受け取りません。
+
+## cron で定期実行する
+
+AAP 側の古いジョブ履歴は、保持期間（初期値は 120 日）を過ぎると削除されます。`sync` を cron で毎晩実行しておくと、削除される前の履歴を手元に残し続けられます。
+
+cron では、エイリアスと `~/.bashrc` が使えません。そのため、共通の設定ファイルの場所（`AAPSTATS_CONFIG`）と資材の場所を、cron の行の中で指定します。書き方は次の 2 通りです。どちらも、`crontab -e` で各ユーザーの crontab に書きます。
+
+### 書き方 1：資材のディレクトリに移動してから実行する
+
+```
+# 毎日 2:00 に、移行元の履歴を取得する
+0 2 * * * cd /opt/aapstats && AAPSTATS_CONFIG=/etc/aapstats/config.ini /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
+```
+
+### 書き方 2：移動せず、フルパスで実行する
+
+`PYTHONPATH` で資材の場所を指定すると、ディレクトリを移動しなくても実行できます。
+
+```
+# 毎日 2:00 に、移行元の履歴を取得する
+0 2 * * * AAPSTATS_CONFIG=/etc/aapstats/config.ini PYTHONPATH=/opt/aapstats /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
+
+# 毎週月曜 7:00 に、移行判定の CSV を日付入りのファイル名で保存する
+0 7 * * 1 AAPSTATS_CONFIG=/etc/aapstats/config.ini PYTHONPATH=/opt/aapstats /usr/bin/python3 -m aapstats --profile source report --format csv -o $HOME/aapstats/report-$(date +\%Y\%m\%d).csv >> $HOME/aapstats-report.log 2>&1
+```
+
+共通の値を crontab の先頭に書いておくと、各行を短くできます。
+
+```
+AAPSTATS_CONFIG=/etc/aapstats/config.ini
+PYTHONPATH=/opt/aapstats
+
+0 2 * * * /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
+```
+
+### cron で気をつけること
+
+- **`python3` はフルパスで書きます。** cron の `PATH` は最小限（`/usr/bin:/bin`）です。`python3` の場所は `command -v python3` で確かめられます。RHEL では `/usr/bin/python3` です。
+- **`%` は `\%` と書きます。** crontab では `%` が改行の意味になるためです。上の例の `date +\%Y\%m\%d` がこれに当たります。
+- **`-o` の保存先は絶対パスで書きます。** 書き方 1 で相対パスにすると、資材のディレクトリ（`/opt/aapstats`）に保存しようとして失敗します。一般ユーザーは、資材のディレクトリに書き込めないためです。保存先のディレクトリ（上の例では `$HOME/aapstats`）は、先に作っておきます。
+- **ログを残します。** 上の例のように `>> ログファイル 2>&1` を付けると、進捗とエラーが残ります。
+- **`sync` の二重起動を防ぎます。** 初回の `sync` は長くかかることがあります。前の `sync` が終わる前に次が始まらないよう、`flock -n` を前に付けておくと安全です。次の例は、crontab の先頭に `AAPSTATS_CONFIG` と `PYTHONPATH` を書いた場合の形です。
+
+```
+0 2 * * * flock -n $HOME/.aapstats-sync.lock /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
+```
 
 ## 使い方
 
