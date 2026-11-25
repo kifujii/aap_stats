@@ -468,6 +468,211 @@ python3 -m aapstats list job_templates --uses-credential linux-ssh
 - `--unused-days` は、テンプレートの最終実行日時（`last_job_run`）で判定します。`last_job_run` は、古いジョブ履歴が削除されても残ります。
 - `--orphan` は、**有効な**スケジュールだけを数えます。無効なスケジュールはテンプレートを起動しないためです。スケジュールが 1 つもないものは `--no-schedule` で絞り込みます。
 
+各オプションの説明は、次の折りたたみにあります。日付は `2026-08-01` のように書きます。日付だけを書くと、`--tz`（既定: Asia/Tokyo）のその日の 0 時を指します。`2026-08-01T09:00:00` のように時刻まで書くこともできます。
+
+<details>
+<summary>共通のオプション（すべてのリソース）</summary>
+
+**`--org NAME`**
+
+組織の名前で絞り込みます。名前は完全に一致するものだけを出します。複数の組織を出すときは、`--org A --org B` のように繰り返します。組織に属さない認証情報（組織が空欄のもの）は出ません。`organizations`、`credential_types`、`authenticators` では使えません。
+
+```
+python3 -m aapstats list job_templates --org Default
+```
+
+**`--name TEXT`**
+
+名前に `TEXT` を含むものを出します。大文字と小文字は区別しません。たとえば `--name NOTE` は `write-note-linux` に一致します。
+
+```
+python3 -m aapstats list job_templates --name note
+```
+
+**`--name-regex REGEX`**
+
+名前が正規表現に一致するものを出します。名前の一部に一致すれば対象になり、大文字と小文字を区別します。名前の先頭から一致させるときは `^` を、末尾までなら `$` を付けます。
+
+```
+python3 -m aapstats list job_templates --name-regex '^write-'
+```
+
+**`--created-before DATE` / `--created-after DATE`**
+
+作成日時で絞り込みます。`--created-before` は指定した日時**より前**、`--created-after` は指定した日時**以降**に作成されたものを出します。2 つを組み合わせると、期間を指定できます。
+
+```
+# 2026 年 11 月に作成されたもの
+python3 -m aapstats list job_templates --created-after 2026-11-01 --created-before 2026-12-01
+```
+
+**`--modified-before DATE` / `--modified-after DATE`**
+
+更新日時で絞り込みます。考え方は `--created-before` / `--created-after` と同じです。長いあいだ手が入っていないリソースを探すときに使います。
+
+```
+# 2026 年 1 月より前から更新されていないプロジェクト
+python3 -m aapstats list projects --modified-before 2026-01-01
+```
+
+**`--sort COLUMN`**
+
+指定した列で並べ替えます。指定できる列は、`--wide` で表示される列（テンプレートでは `run_count` も）です。降順にするときは、列名の前に `-` を付け、`--sort=-列名` のように `=` でつなぎます。`=` を省くと、`-` で始まる値がオプションと見なされてエラーになります。値が空のものは、昇順でも降順でも最後に並びます。
+
+```
+# 最終実行日時の新しい順
+python3 -m aapstats list job_templates --sort=-last_job_run
+```
+
+**`--limit N`**
+
+出す件数の上限です。並べ替えと絞り込みを済ませたあとで、先頭から `N` 件を出します。
+
+```
+python3 -m aapstats list job_templates --sort=-last_job_run --limit 10
+```
+
+</details>
+
+<details>
+<summary>利用状況のオプション（job_templates と workflow_job_templates）</summary>
+
+**`--unused-days N`**
+
+`N` 日以上実行されていないテンプレートを出します。一度も実行されていないものも含みます。判定には、テンプレートの最終実行日時（`last_job_run`）を使います。`last_job_run` は、AAP 側で古いジョブ履歴が削除されても残るため、履歴の保持期間（初期値は 120 日）より長い日数も指定できます。AAP に残っている履歴の日数より長い日数を指定すると、その旨の警告が出ます（判定は `last_job_run` で正しく行われます）。
+
+```
+python3 -m aapstats list job_templates --unused-days 90
+```
+
+**`--never-run`**
+
+一度も実行されていないテンプレートを出します。
+
+```
+python3 -m aapstats list job_templates --never-run
+```
+
+**`--last-status STATUS`**
+
+最後の実行結果で絞り込みます。`STATUS` には次のいずれかを指定します。
+
+| 値 | 意味 |
+|---|---|
+| `successful` | 最後の実行が成功した |
+| `failed` | 最後の実行が失敗した |
+| `error` | 最後の実行がエラーで終わった |
+| `canceled` | 最後の実行がキャンセルされた |
+| `never` | 一度も実行されていない |
+
+```
+python3 -m aapstats list job_templates --last-status failed
+```
+
+**`--min-runs N` / `--max-runs N`**
+
+期間内の実行回数で絞り込みます。`--min-runs` は `N` 回以上、`--max-runs` は `N` 回以下のものを出します。期間は `--since` で指定します。結果には `run_count`（期間内の実行回数）の列が加わります。
+
+実行回数は、テンプレートごとに AAP の API に問い合わせて数えます。テンプレートが多いと時間がかかるため、ほかの絞り込みを先に済ませてから、残ったテンプレートだけを数えます。
+
+```
+# 8 月以降に 1 回も実行されていないテンプレート
+python3 -m aapstats list job_templates --since 2026-08-01 --max-runs 0
+
+# 8 月以降に 10 回以上実行されたテンプレート
+python3 -m aapstats list job_templates --since 2026-08-01 --min-runs 10
+```
+
+**`--since DATE`**
+
+実行回数（`run_count`）を数える期間の始まりです。指定しなければ、AAP に残っている履歴すべてで数えます。`--since` だけでは絞り込みません。`--min-runs`、`--max-runs`、`--columns run_count` と組み合わせて使います。保持期間より前の日付を指定すると、削除済みの分だけ回数が少なく出る旨の警告が出ます。
+
+```
+python3 -m aapstats list job_templates --since 2026-08-01 --columns name,run_count --sort=-run_count
+```
+
+</details>
+
+<details>
+<summary>参照関係のオプション</summary>
+
+**`--orphan`**（job_templates と workflow_job_templates）
+
+有効なスケジュールからも、ワークフローからも呼ばれていないテンプレートを出します。無効なスケジュールしかないものも対象です。手で実行する以外に起動される経路がないテンプレートを探すときに使います。
+
+```
+python3 -m aapstats list job_templates --unused-days 90 --orphan
+```
+
+**`--no-schedule`**（job_templates と workflow_job_templates）
+
+スケジュールが 1 つもないテンプレートを出します。`--orphan` と違い、無効なスケジュールがあるものは対象外です。
+
+```
+python3 -m aapstats list job_templates --no-schedule
+```
+
+**`--unreferenced`**（projects、inventories、credentials、execution_environments）
+
+どこからも使われていないリソースを出します。AAP の組み込みのリソースは除き、除いたものの名前をメッセージで知らせます。「使われている」とみなす参照は、リソースごとに次のとおりです。
+
+| リソース | 数える参照 |
+|---|---|
+| `projects` | テンプレート、インベントリソース（ソースのプロジェクト）、ワークフローの同期ノード |
+| `inventories` | テンプレート、ワークフローのインベントリ同期ノード |
+| `credentials` | テンプレート、プロジェクト（SCM 認証情報）、インベントリソース、組織（Galaxy 認証情報） |
+| `execution_environments` | テンプレート、プロジェクトの既定、組織の既定、インベントリソース |
+
+```
+python3 -m aapstats list credentials --unreferenced
+```
+
+</details>
+
+<details>
+<summary>逆引きのオプション（job_templates と workflow_job_templates）</summary>
+
+指定したリソースを使っているテンプレートを出します。移行の対象から外そうとしているリソースを、どのテンプレートが使っているかを確かめるときに使います。
+
+値には、リソースの名前か ID を指定します。数字だけを指定すると ID として扱います。名前は完全に一致するものだけを対象にします。
+
+| オプション | 探すもの |
+|---|---|
+| `--uses-project NAME\|ID` | このプロジェクトを使うジョブテンプレート |
+| `--uses-inventory NAME\|ID` | このインベントリを使うジョブテンプレートとワークフロー |
+| `--uses-credential NAME\|ID` | この認証情報を割り当てたジョブテンプレート（Webhook の認証情報は対象外） |
+| `--uses-ee NAME\|ID` | この実行環境を指定したジョブテンプレート（実行環境を指定せず既定で動くものは対象外） |
+
+ワークフローは、プロジェクト、認証情報、実行環境を直接は使わないため、`workflow_job_templates` に `--uses-project`、`--uses-credential`、`--uses-ee` を指定すると 0 件になります。
+
+```
+python3 -m aapstats list job_templates --uses-credential linux-ssh
+python3 -m aapstats list job_templates --uses-ee 5
+```
+
+</details>
+
+<details>
+<summary>列の選び方（--columns、--wide）</summary>
+
+**`--columns COLS`**
+
+出す列を、カンマ区切りで指定した順に出します。存在しない列を指定すると、使える列の一覧を示すエラーになります。
+
+```
+python3 -m aapstats list projects --columns name,scm_url,used_by_templates
+```
+
+**`--wide`**
+
+すべての列を出します。`--format json` のときは、`--columns` を指定しない限り、もともとすべての列を出します。
+
+```
+python3 -m aapstats list credentials --wide --format csv -o credentials.csv
+```
+
+</details>
+
 ### deps
 
 ジョブテンプレートまたはワークフローを 1 つ指定し、移行先で動かすために一緒に移行が必要なリソースを出します。
