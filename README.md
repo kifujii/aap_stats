@@ -27,11 +27,13 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 - [エイリアスでどこからでも実行する](#エイリアスでどこからでも実行する)
 - [cron で定期実行する](#cron-で定期実行する)
 - [資材を更新する](#資材を更新する)
+- [設定ファイルに書ける項目](#設定ファイルに書ける項目)
 - [環境変数で指定する](#環境変数で指定する)
 
 **コマンドの使い方**
 
-- [info](#info) / [list](#list) / [絞り込み](#絞り込み) / [deps](#deps) / [sync](#sync) / [stats](#stats) / [report](#report)
+- [共通のオプション](#共通のオプション)
+- [info](#info) / [list](#list) / [絞り込み](#絞り込み) / [deps](#deps) / [sync](#sync) / [stats](#stats)（[ワークフローを集計する](#ワークフローを集計する)） / [report](#report)
 - [テスト](#テスト)
 
 ## 置き場所の全体像
@@ -428,6 +430,33 @@ sudo mv /tmp/aap_stats-main /opt/aapstats
 
 </details>
 
+### 設定ファイルに書ける項目
+
+<details>
+<summary>一覧を表示</summary>
+
+設定ファイルのプロファイル（`[source]` など）に書ける項目です。コマンドのオプションで指定した値が、設定ファイルより優先します。設定ファイルにない項目は、環境変数から読みます。
+
+| 項目 | 内容 | 既定 | 対応するオプション / 環境変数 |
+|---|---|---|---|
+| `host` | 接続先の URL | （必須） | `--host` / `AAP_HOST` |
+| `token_file` | トークンを保存したファイル。共有する設定では絶対パスで書く | なし | `AAP_TOKEN_FILE` |
+| `token` | トークンそのもの。ファイルに分けられないとき用で、勧めない | なし | `AAP_TOKEN` |
+| `username` / `password` | トークンの代わりに、ユーザー名とパスワードで認証する | なし | `AAP_USERNAME` / `AAP_PASSWORD` |
+| `password_file` | パスワードを保存したファイル | なし | `AAP_PASSWORD_FILE` |
+| `verify_ssl` | `false` で証明書の検証をしない | `true` | `--insecure` / `AAP_VERIFY_SSL` |
+| `ca_file` | 社内 CA の証明書ファイル | なし | `--ca-file` / `AAP_CA_FILE` |
+| `api_version` | API の構成（`auto`、`gateway`、`legacy`） | `auto` | `--api-version` / `AAP_API_VERSION` |
+| `timezone` | 日時を表示するタイムゾーン | `Asia/Tokyo` | `--tz` / `AAP_TIMEZONE` |
+| `timeout` | 1 回の問い合わせを待つ秒数 | 60 | `--timeout` / `AAP_TIMEOUT` |
+| `max_workers` | 同時に送る問い合わせの数 | 4 | `--max-workers` / `AAP_MAX_WORKERS` |
+| `request_interval` | 問い合わせの最小間隔の秒数 | 0 | `--request-interval` / `AAP_REQUEST_INTERVAL` |
+| `unused_days` | `report` で未使用とみなす日数 | 90 | `--unused-days` / `AAP_UNUSED_DAYS` |
+
+トークンとユーザー名・パスワードの両方を書いた場合は、トークンを使います。
+
+</details>
+
 ### 環境変数で指定する
 
 <details>
@@ -442,8 +471,15 @@ sudo mv /tmp/aap_stats-main /opt/aapstats
 | `AAP_HOST` | 接続先の URL |
 | `AAP_TOKEN` / `AAP_TOKEN_FILE` | トークン / トークンを保存したファイル |
 | `AAP_USERNAME` / `AAP_PASSWORD` | ユーザー名 / パスワード |
+| `AAP_PASSWORD_FILE` | パスワードを保存したファイル |
 | `AAP_VERIFY_SSL` | `false` で証明書の検証を無効にする |
 | `AAP_CA_FILE` | CA 証明書のファイル |
+| `AAP_API_VERSION` | API の構成（`auto`、`gateway`、`legacy`） |
+| `AAP_TIMEZONE` | 日時を表示するタイムゾーン |
+| `AAP_TIMEOUT` / `AAP_MAX_WORKERS` / `AAP_REQUEST_INTERVAL` | 問い合わせの待ち時間 / 同時に送る数 / 最小間隔 |
+| `AAP_UNUSED_DAYS` | `report` で未使用とみなす日数 |
+
+各項目の意味と既定値は「[設定ファイルに書ける項目](#設定ファイルに書ける項目)」を参照してください。
 
 パスワードとトークンは、シェルの履歴に残らないよう、コマンドの引数では受け取りません。
 
@@ -458,6 +494,54 @@ python3 -m aapstats --profile source info
 python3 -m aapstats --profile source info --format json -o info.json
 python3 -m aapstats --help
 ```
+
+### 共通のオプション
+
+すべてのコマンドで使えるオプションです。サブコマンドの前にも後ろにも書けます（`--profile source list ...` と `list ... --profile source` は同じです）。
+
+| オプション | できること |
+|---|---|
+| `--profile NAME` | 使うプロファイル（設定ファイルの `[NAME]`）を選ぶ。省略すると `[default]` を使う（「[プロファイルの選び方](#プロファイルの選び方)」） |
+| `--format table\|csv\|json` | 出力形式を選ぶ。既定は `table`（画面表示用の表）。`csv` は BOM 付き UTF-8 で、Excel でそのまま開ける。`json` は他のツールやスクリプトに渡す用 |
+| `-o PATH`、`--output PATH` | 結果をファイルに保存する。省略すると画面に出す。相対パスは、コマンドを実行したディレクトリが基準 |
+| `--lang en\|ja` | 列名の言語。既定は `en`（API の項目名）。`ja` で日本語の列名にする（`table` と `csv` だけ。`json` のキーは英語のまま） |
+| `--tz ZONE` | 日時を表示するタイムゾーン。既定は `Asia/Tokyo`。日付で絞り込むときの区切りにも使う |
+| `-v`、`--verbose` | 詳細ログを出す。API の URL と応答時間が分かる。ログは標準エラーに出るので、`-o` やパイプの結果には混ざらない |
+| `-h`、`--help` | 使い方を表示する。`python3 -m aapstats list --help` のように、サブコマンドごとにも表示できる |
+
+<details>
+<summary>接続に関するオプション</summary>
+
+ふだんは設定ファイルに書いておき、一時的に変えたいときにコマンドで指定します。コマンドで指定した値は、設定ファイルと環境変数より優先します。
+
+| オプション | できること | 既定 |
+|---|---|---|
+| `--config PATH` | 使う設定ファイルを指定する（「[設定ファイルを探す順番](#設定ファイルを探す順番)」） | `~/.config/aapstats/config.ini` |
+| `--host URL` | 接続先の URL を指定する。トークンは設定ファイルか環境変数から読む | 設定ファイルの `host` |
+| `--insecure` | 証明書の検証をしない。自己署名の証明書で一時的に試すとき用 | 検証する |
+| `--ca-file PATH` | 社内 CA の証明書ファイルを指定する。証明書の検証は行ったまま、社内 CA を信頼する | なし |
+| `--api-version auto\|gateway\|legacy` | API の構成。`auto` は自動で判別する。判別できないときに、`gateway`（AAP 2.5 以降）か `legacy`（AAP 2.4 以前）を指定する | `auto` |
+| `--timeout SEC` | 1 回の問い合わせを待つ秒数 | 60 |
+| `--max-workers N` | 同時に送る問い合わせの数。AAP の負荷を下げたいときは小さくする | 4 |
+| `--request-interval SEC` | 問い合わせの最小間隔の秒数。AAP の負荷をさらに下げたいときに使う | 0 |
+
+</details>
+
+<details>
+<summary>バージョンと終了コード</summary>
+
+`python3 -m aapstats --version` で、ツールのバージョンを表示します。
+
+シェルスクリプトや cron で結果を判定できるよう、次の終了コードを返します。
+
+| 終了コード | 意味 |
+|---|---|
+| 0 | 正常に終わった |
+| 1 | 接続または認証のエラー（接続できない、トークンが正しくない、権限がないなど） |
+| 2 | 引数や設定の誤り（存在しないプロファイル、存在しない列、日付の書き方の誤りなど） |
+| 130 | Ctrl+C で中断した |
+
+</details>
 
 ### info
 
@@ -743,6 +827,18 @@ python3 -m aapstats deps jt 19 --format csv -o deps.csv
 - カスタムの認証情報タイプには「移行先で作り直しが必要」と注記します。
 - `csv` は種類ごとにまとめた一覧だけを、`json` はツリーと一覧の両方を出します。
 
+<details>
+<summary>指定できるリソースの書き方</summary>
+
+1 つ目の引数にはリソースの種類を、2 つ目にはテンプレートの名前か ID を指定します。数字だけを指定すると ID として扱います。同じ名前のテンプレートが複数あるときは、候補の ID を示すエラーになるので、ID で指定し直します。
+
+| 種類 | 書き方（どれでも同じ） |
+|---|---|
+| ジョブテンプレート | `job_template`、`job_templates`、`jt` |
+| ワークフロー | `workflow_job_template`、`workflow_job_templates`、`wfjt` |
+
+</details>
+
 ### sync
 
 ジョブ履歴を手元の SQLite に保存します。`stats` はこの保存したデータから統計を出します。
@@ -757,6 +853,30 @@ python3 -m aapstats --profile source sync --since 2026-08-01 --kinds job,workflo
 - 1 ページ（200 件）ごとに保存するので、途中で止まっても、次回は続きから取得します。進捗は 10 秒ごとに、残り件数と完了までの目安とともに表示します。
 - AAP 側で古い履歴が削除されても、保存済みの履歴は消しません。定期的に `sync` すれば、AAP の保持期間より長い期間の統計を取れます。
 - 保存したファイルにはお客様環境のデータが含まれるため、権限を 600 にします。
+
+<details>
+<summary>オプションの説明</summary>
+
+**`--kinds KINDS`**
+
+取得する履歴の種類を、カンマ区切りで指定します。既定は `job,workflow_job` です。プロジェクトやインベントリの同期の統計も見たいときに、`project_update` や `inventory_update` を加えます。
+
+| 値 | 取得する履歴 |
+|---|---|
+| `job` | ジョブテンプレートの実行 |
+| `workflow_job` | ワークフローの実行 |
+| `project_update` | プロジェクトの同期 |
+| `inventory_update` | インベントリの同期 |
+
+**`--since DATE`**
+
+初回の取得で、この日以降の履歴だけを取得します。履歴が多く、初回の取得に時間がかかるときに使います。2 回目以降の取得では使われません（前回の続きから取得するため）。
+
+**`--db PATH`**
+
+保存先の SQLite ファイルを指定します。省略すると `~/.local/share/aapstats/<プロファイル名>.sqlite` に保存します。`stats` でも同じファイルを指定します。
+
+</details>
 
 ### stats
 
@@ -776,6 +896,80 @@ python3 -m aapstats --profile source stats --format csv -o stats.csv --wide
 - `--top N` で、実行回数、失敗率、平均実行時間の上位 N 件を出します。`--by` で 1 つに絞れます。`--min-runs` で、実行回数の少ないテンプレートを除けます。
 - 結果の冒頭に、集計した期間、保存済みの期間、ジョブ数を出します。
 - 100 万件の履歴で、テンプレート別の集計は 15 秒前後、メモリは 30MB 程度です（認証情報別は 30 秒前後）。
+
+#### ワークフローを集計する
+
+`stats` は、ジョブテンプレートとワークフローの両方を集計します。結果の `template_type` 列が `workflow` の行がワークフローです。ワークフローの行にも、実行回数、成功率、実行時間、起動方法の内訳などが出ます。
+
+ワークフローだけを集計するときは、`--kinds workflow_job` を付けます。
+
+```
+# ワークフローだけのテンプレート別の統計
+python3 -m aapstats --profile source stats --kinds workflow_job
+
+# 実行回数が多いワークフローの上位 10 件
+python3 -m aapstats --profile source stats --kinds workflow_job --top 10 --by runs
+
+# ワークフローの月別の実行回数
+python3 -m aapstats --profile source stats --kinds workflow_job --group-by month
+```
+
+- ワークフローの実行時間は、中で動いたジョブを含めた、始まりから終わりまでの時間です。
+- ジョブテンプレートの行の `launch_workflow` 列は、そのテンプレートがワークフローから起動された回数です。手動やスケジュールでは使われず、ワークフローの部品としてだけ動いているテンプレートを見分けるときに使います。
+- `--kinds job` を付けると、ジョブテンプレートだけを集計します。
+
+<details>
+<summary>オプションの説明</summary>
+
+**`--since DATE` / `--until DATE`**
+
+集計する期間です。`--since` は指定した日時**以降**、`--until` は指定した日時**より前**に始まったジョブを集計します。省略すると、保存済みの履歴すべてを集計します。保存済みの履歴より前の日付を指定すると、その旨の警告が出ます。
+
+**`--org NAME`**
+
+組織の名前で絞り込みます。名前は完全に一致するものだけを対象にします。複数の組織は、`--org A --org B` のように繰り返して指定します。
+
+**`--name TEXT`**
+
+テンプレートの名前に `TEXT` を含むジョブだけを集計します。大文字と小文字は区別しません。
+
+**`--group-by KEY`**
+
+集計の単位を変えます。省略すると `template`（テンプレートごと）です。
+
+| 値 | 集計の単位 |
+|---|---|
+| `template` | テンプレート（既定） |
+| `organization` / `project` / `inventory` / `execution_environment` | 組織 / プロジェクト / インベントリ / 実行環境 |
+| `credential` | 認証情報。1 つのジョブが複数の認証情報を使ったときは、それぞれに 1 回ずつ数える |
+| `day` / `week` / `month` | 日 / 週（月曜始まり） / 月 |
+| `hour` / `weekday` | 時間帯（0〜23 時） / 曜日。移行先の処理能力を見積もるときに使う |
+
+**`--top N` / `--by KEY` / `--min-runs N`**
+
+`--top N` で、上位 N 件のランキングを出します。既定では次の 3 つを出し、`--by` で 1 つに絞れます。`--group-by` とは同時に使えません。
+
+| `--by` の値 | ランキング |
+|---|---|
+| `runs` | 実行回数が多いテンプレート |
+| `failure_rate` | 失敗率（失敗とエラーの割合）が高いテンプレート |
+| `avg_elapsed` | 平均実行時間が長いテンプレート |
+
+`--min-runs N` で、実行回数が N 回未満のテンプレートをランキングから除きます（既定は 1）。1 回しか動いていないテンプレートが失敗率 100% で上位に並ぶのを避けるときに使います。
+
+**`--wide`**
+
+テンプレートごとの統計で、すべての列（最大実行時間、合計実行時間、再実行・コールバック・Webhook での起動回数など）を出します。`--format json` のときは、もともとすべての列を出します。
+
+**`--kinds KINDS`**
+
+集計する履歴の種類です。既定は `job,workflow_job` です。値は `sync` の `--kinds` と同じです。`sync` で取得していない種類は集計できません。
+
+**`--db PATH`**
+
+集計する SQLite ファイルを指定します。省略すると、`sync` と同じ既定の場所（`~/.local/share/aapstats/<プロファイル名>.sqlite`）を読みます。`--db` を指定すれば、プロファイルを指定しなくても動きます。
+
+</details>
 
 ### report
 
