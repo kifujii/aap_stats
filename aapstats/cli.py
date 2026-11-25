@@ -145,6 +145,22 @@ def build_parser():
     stats_cmd.add_arguments(p_stats)
     _add_common(p_stats, suppress=True)
     p_stats.set_defaults(handler="stats")
+
+    from .commands import report as report_cmd
+
+    p_report = sub.add_parser(
+        "report",
+        help="テンプレートと関連リソースを「移行対象・要確認・移行不要候補」に分類する",
+        description="テンプレートを最終実行日時と参照関係で「移行対象・要確認・移行不要候補」に分類し、"
+        "その結果を関連リソース（プロジェクト、インベントリ、認証情報、認証情報タイプ、実行環境、チーム）に広げます。"
+        "ツールが出すのは候補です。移行するかどうかは人が決めてください。",
+        epilog="例:\n  aapstats --profile source report\n  aapstats --profile source report --format csv -o report.csv\n"
+        "  aapstats --profile source report --unused-days 180 --only unneeded,review",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    report_cmd.add_arguments(p_report)
+    _add_common(p_report, suppress=True)
+    p_report.set_defaults(handler="report")
     return parser
 
 
@@ -165,6 +181,10 @@ def _handler(name):
         from .commands import info
 
         return info.run
+    if name == "report":
+        from .commands import report
+
+        return report.run
     if name == "sync":
         from .commands import sync
 

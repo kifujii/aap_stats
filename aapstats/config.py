@@ -50,6 +50,7 @@ class Settings:
     max_workers: int = 4
     request_interval: float = 0.0
     profile: Optional[str] = None
+    unused_days: int = 90  # report の判定日数（R5-5）
 
     @property
     def verify(self):
@@ -186,4 +187,5 @@ def load_settings(args, require_auth=True) -> Settings:
         max_workers=max_workers,
         request_interval=num(getattr(args, "request_interval", None), "request_interval", float, 0.0),
         profile=args.profile,
+        unused_days=num(getattr(args, "unused_days", None) if getattr(args, "handler", None) == "report" else None, "unused_days", int, 90),
     )
