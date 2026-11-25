@@ -2,6 +2,8 @@
 # 管理者が /etc/aapstats/config.ini にコピーし、全ユーザーで共有する（手順は README の「接続の設定」）
 # 各ユーザーは環境変数 AAPSTATS_CONFIG=/etc/aapstats/config.ini でこのファイルを指定する
 # token_file は必ず絶対パスで書く（~ は実行したユーザーのホームと解釈されるため）
+# プロファイル名を [default] にすると、--profile を省略したときにそのプロファイルを使う
+# 同じ AAP を 2 つのプロファイルに書かない（履歴が 2 つのファイルに分かれ、sync が二重になる）
 
 [source]
 # 移行元（AAP 2.5）

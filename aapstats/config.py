@@ -87,6 +87,8 @@ def load_settings(args, require_auth=True) -> Settings:
     """
     config_path = Path(args.config).expanduser() if args.config else DEFAULT_CONFIG_PATH
     section = {}
+    profile = args.profile
+    registered = []  # 設定ファイルに登録されているプロファイル（エラーメッセージ用）
     if args.profile and not config_path.exists():
         raise ConfigError(f"設定ファイルが見つかりません: {config_path}")
     if config_path.exists():
@@ -95,14 +97,23 @@ def load_settings(args, require_auth=True) -> Settings:
             parser.read(config_path, encoding="utf-8")
         except configparser.Error as e:
             raise ConfigError(f"設定ファイルの書式が正しくありません: {config_path}（{e}）") from None
-        name = args.profile or "default"
-        if parser.has_section(name):
-            section = dict(parser.items(name))
-        elif args.profile:
-            available = ", ".join(parser.sections()) or "なし"
-            raise ConfigError(
-                f"プロファイル '{args.profile}' が {config_path} にありません（登録済み: {available}）"
-            )
+        registered = parser.sections()
+        if args.profile:
+            if not parser.has_section(args.profile):
+                available = ", ".join(registered) or "なし"
+                raise ConfigError(
+                    f"プロファイル '{args.profile}' が {config_path} にありません（登録済み: {available}）"
+                )
+            section = dict(parser.items(args.profile))
+        elif parser.has_section("default"):
+            # --profile を省略したときは [default] を使う
+            section = dict(parser.items("default"))
+            profile = "default"
+        elif parser.defaults():
+            # 大文字の [DEFAULT] は configparser では「全プロファイル共通の値」だが、
+            # [default] と書き間違えやすいため、--profile を省略したときの既定としても使う
+            section = dict(parser.defaults())
+            profile = "default"
 
     env = os.environ
 
@@ -114,8 +125,19 @@ def load_settings(args, require_auth=True) -> Settings:
         return env.get(env_key) or None
 
     host = pick(getattr(args, "host", None), "host", "AAP_HOST")
+    missing_profile = ConfigError(
+        f"プロファイルが指定されていません。--profile で次のいずれかを指定してください: {', '.join(registered)}\n"
+        f"（設定ファイル {config_path} に [default] を作ると、--profile を省略できます）"
+    )
     if not host and not require_auth:
-        return Settings(host=None, timezone=pick(getattr(args, "tz", None), "timezone", "AAP_TIMEZONE") or "Asia/Tokyo", profile=args.profile)
+        # stats のように接続しないコマンドでも、プロファイルを付け忘れたまま
+        # 別のプロファイルの履歴（default.sqlite など）を読まないようにする
+        if profile is None and registered and not getattr(args, "db", None):
+            raise missing_profile
+        return Settings(host=None, timezone=pick(getattr(args, "tz", None), "timezone", "AAP_TIMEZONE") or "Asia/Tokyo", profile=profile)
+    if not host and profile is None and registered:
+        # 原因はたいてい --profile の付け忘れなので、登録済みのプロファイルを示す
+        raise missing_profile
     if not host:
         raise ConfigError(
             "接続先が指定されていません。--host、設定ファイルの host、環境変数 AAP_HOST のいずれかで指定してください"
@@ -186,6 +208,6 @@ def load_settings(args, require_auth=True) -> Settings:
         timeout=num(getattr(args, "timeout", None), "timeout", float, 60.0),
         max_workers=max_workers,
         request_interval=num(getattr(args, "request_interval", None), "request_interval", float, 0.0),
-        profile=args.profile,
+        profile=profile,
         unused_days=num(getattr(args, "unused_days", None) if getattr(args, "handler", None) == "report" else None, "unused_days", int, 90),
     )
