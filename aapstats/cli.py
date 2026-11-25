@@ -11,6 +11,9 @@ from .output import FORMATS, Renderer
 
 log = logging.getLogger("aapstats")
 
+# AAP に接続しないコマンド
+OFFLINE_COMMANDS = {"stats"}
+
 EPILOG = """\
 接続先と認証情報は、設定ファイル（~/.config/aapstats/config.ini）のプロファイルか、
 環境変数（AAP_HOST、AAP_TOKEN または AAP_TOKEN_FILE、AAP_USERNAME と AAP_PASSWORD）で指定します。
@@ -115,6 +118,33 @@ def build_parser():
     p_deps.add_argument("target", metavar="<name|id>", help="テンプレートの名前または ID")
     _add_common(p_deps, suppress=True)
     p_deps.set_defaults(handler="deps")
+
+    from .commands import stats as stats_cmd
+    from .commands import sync as sync_cmd
+
+    p_sync = sub.add_parser(
+        "sync",
+        help="ジョブ履歴を手元の SQLite に保存する（2 回目以降は差分だけ）",
+        description="ジョブ履歴を手元の SQLite に保存します。途中で止まっても、次回は続きから取得します。"
+        "AAP 側で古い履歴が削除されても、保存済みの履歴は残ります。",
+        epilog="例:\n  aapstats --profile source sync\n  aapstats --profile source sync --since 2026-08-01 --kinds job,workflow_job,project_update",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sync_cmd.add_arguments(p_sync)
+    _add_common(p_sync, suppress=True)
+    p_sync.set_defaults(handler="sync")
+
+    p_stats = sub.add_parser(
+        "stats",
+        help="保存したジョブ履歴から統計を出す（AAP には接続しない）",
+        description="aapstats sync で保存したジョブ履歴から統計を出します。AAP には接続しません。",
+        epilog="例:\n  aapstats --profile source stats\n  aapstats --profile source stats --group-by month\n"
+        "  aapstats --profile source stats --top 10\n  aapstats --profile source stats --since 2026-08-01 --format csv -o stats.csv",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    stats_cmd.add_arguments(p_stats)
+    _add_common(p_stats, suppress=True)
+    p_stats.set_defaults(handler="stats")
     return parser
 
 
@@ -135,6 +165,14 @@ def _handler(name):
         from .commands import info
 
         return info.run
+    if name == "sync":
+        from .commands import sync
+
+        return sync.run
+    if name == "stats":
+        from .commands import stats
+
+        return stats.run
     if name == "deps":
         from .commands import deps
 
@@ -153,11 +191,17 @@ def main(argv=None):
 
     out = None
     try:
-        settings = load_settings(args)
-        from .client import AapClient
+        offline = args.handler in OFFLINE_COMMANDS
+        settings = load_settings(args, require_auth=not offline)
+        if offline:
+            # AAP に接続しないコマンド。設定はタイムゾーンと保存先の決定にだけ使う
+            client = None
+            args._settings = settings
+        else:
+            from .client import AapClient
 
-        client = AapClient(settings)
-        client.connect()
+            client = AapClient(settings)
+            client.connect()
 
         if args.output:
             try:

@@ -79,8 +79,11 @@ def _read_secret_file(path, name):
     return value
 
 
-def load_settings(args) -> Settings:
-    """引数・設定ファイル・環境変数から Settings を組み立てる。"""
+def load_settings(args, require_auth=True) -> Settings:
+    """引数・設定ファイル・環境変数から Settings を組み立てる。
+
+    require_auth=False のときは、接続先と認証情報がなくてもよい（stats のように AAP に接続しないコマンド用）。
+    """
     config_path = Path(args.config).expanduser() if args.config else DEFAULT_CONFIG_PATH
     section = {}
     if args.profile and not config_path.exists():
@@ -110,6 +113,8 @@ def load_settings(args) -> Settings:
         return env.get(env_key) or None
 
     host = pick(getattr(args, "host", None), "host", "AAP_HOST")
+    if not host and not require_auth:
+        return Settings(host=None, timezone=pick(getattr(args, "tz", None), "timezone", "AAP_TIMEZONE") or "Asia/Tokyo", profile=args.profile)
     if not host:
         raise ConfigError(
             "接続先が指定されていません。--host、設定ファイルの host、環境変数 AAP_HOST のいずれかで指定してください"
@@ -129,7 +134,7 @@ def load_settings(args) -> Settings:
     if not password and password_file:
         password = _read_secret_file(password_file, "password_file")
 
-    if not token and not (username and password):
+    if require_auth and not token and not (username and password):
         raise ConfigError(
             "認証情報がありません。トークン（token / token_file / AAP_TOKEN）か、"
             "ユーザー名とパスワード（username と password / password_file、AAP_USERNAME と AAP_PASSWORD）を設定してください"

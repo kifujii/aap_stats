@@ -74,6 +74,8 @@ RESOURCES = {
         # 統計の材料
         Resource("jobs", CONTROLLER, "jobs/", "ジョブ実行履歴"),
         Resource("workflow_jobs", CONTROLLER, "workflow_jobs/", "ワークフロー実行履歴"),
+        Resource("project_updates", CONTROLLER, "project_updates/", "プロジェクト同期の履歴"),
+        Resource("inventory_updates", CONTROLLER, "inventory_updates/", "インベントリ同期の履歴"),
         Resource("workflow_job_template_nodes", CONTROLLER, "workflow_job_template_nodes/", "ワークフローノード"),
         Resource("system_job_templates", CONTROLLER, "system_job_templates/", "管理ジョブ"),
     ]
