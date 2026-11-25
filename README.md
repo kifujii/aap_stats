@@ -4,7 +4,49 @@ Ansible Automation Platform（AAP）の移行で、移行するリソースを�
 
 要件は [requirements.md](requirements.md) にまとめています。
 
-## 動作環境
+## 目次
+
+**導入（管理者が 1 回だけ行う）**
+
+- [1. 動作環境を確かめる](#1-動作環境を確かめる)
+- [2. 資材を置く](#2-資材を置く)
+- [3. AAP でトークンを作る](#3-aap-でトークンを作る)
+- [4. 設定ファイルを置く](#4-設定ファイルを置く)
+- [5. トークンを保存する](#5-トークンを保存する)
+
+**利用の準備（各ユーザーが行う）**
+
+- [6. 共通の設定を指定して実行する](#6-共通の設定を指定して実行する)
+
+**任意の設定**（中身は折りたたんでいます）
+
+- [グループでトークンを読めるユーザーを絞る](#グループでトークンを読めるユーザーを絞る)
+- [エイリアスでどこからでも実行する](#エイリアスでどこからでも実行する)
+- [cron で定期実行する](#cron-で定期実行する)
+- [資材を更新する](#資材を更新する)
+- [環境変数で指定する](#環境変数で指定する)
+
+**コマンドの使い方**
+
+- [info](#info) / [list](#list) / [絞り込み](#絞り込み) / [deps](#deps) / [sync](#sync) / [stats](#stats) / [report](#report)
+- [テスト](#テスト)
+
+## 置き場所の全体像
+
+このツールは、Linux サーバーの各ユーザーが使う前提です。資材、接続先の設定、AAP のトークンはサーバーに 1 つだけ置き、全ユーザーで共有します。手元に保存するジョブ履歴（`sync` で作る SQLite）は、ユーザーごとに作られます。
+
+| もの | 置き場所 | 持ち主 |
+|---|---|---|
+| 資材 | `/opt/aapstats` | 全ユーザーで共有 |
+| 設定ファイル | `/etc/aapstats/config.ini` | 全ユーザーで共有 |
+| AAP のトークン | `/etc/aapstats/<プロファイル名>.token` | 全ユーザーで共有 |
+| ジョブ履歴 | `~/.local/share/aapstats/<プロファイル名>.sqlite` | ユーザーごと |
+
+置き場所は変えられます。以降は上の表の場所で説明します。
+
+## 導入（管理者が 1 回だけ行う）
+
+### 1. 動作環境を確かめる
 
 - Python 3.9 以上
 - `requests`（必須）
@@ -18,19 +60,11 @@ python3 -c 'import requests; print(requests.__version__)'
 
 RHEL では `subscription-manager` が `requests` に依存しているため、多くの場合は最初から入っています。入っていなければ、社内のリポジトリ（Satellite など）から `sudo dnf install python3-requests` で入れます。
 
-## 資材の配置と実行方法
+### 2. 資材を置く
 
-### 資材を置く
+インターネットにつながる端末で、GitHub のリポジトリの画面から「Code」→「Download ZIP」を選び、`aap_stats-main.zip` をダウンロードします。このファイルを、許可された方法で閉域の環境へ持ち込みます。
 
-資材は任意のディレクトリに置きます。以降は `/opt/aapstats` に置いた例で説明します。
-
-**1. zip をダウンロードする（インターネットにつながる端末で）**
-
-GitHub のリポジトリの画面で「Code」→「Download ZIP」を選び、`aap_stats-main.zip` をダウンロードします。このファイルを、許可された方法で閉域の環境へ持ち込みます。
-
-**2. 展開して配置する（閉域の環境で）**
-
-zip の中には `aap_stats-main` というディレクトリが入っています。展開してから、名前を `aapstats` に変えます。
+閉域の環境で展開します。zip の中には `aap_stats-main` というディレクトリが入っているので、展開してから名前を `aapstats` に変えます。
 
 ```
 sudo unzip -q aap_stats-main.zip -d /opt
@@ -38,99 +72,33 @@ sudo mv /opt/aap_stats-main /opt/aapstats
 ls /opt/aapstats        # README.md、aapstats、config.ini.example などがあれば成功
 ```
 
-`unzip` コマンドがない場合は、Python の標準機能で展開できます。
+<details>
+<summary>unzip コマンドがない場合</summary>
+
+Python の標準機能で展開できます。
 
 ```
 sudo python3 -m zipfile -e aap_stats-main.zip /opt
 sudo mv /opt/aap_stats-main /opt/aapstats
 ```
 
-**資材を更新するとき**
+</details>
 
-新しい zip を同じ手順で展開し、`/opt/aapstats` を置き換えます。設定ファイル（`/etc/aapstats`）と各ユーザーのジョブ履歴（`~/.local/share/aapstats`）は資材のディレクトリの外にあるため、置き換えても消えません。
+### 3. AAP でトークンを作る
 
-```
-sudo unzip -q aap_stats-main.zip -d /tmp
-sudo rm -rf /opt/aapstats.old && sudo mv /opt/aapstats /opt/aapstats.old
-sudo mv /tmp/aap_stats-main /opt/aapstats
-```
+このツール専用のユーザーを AAP に作り、システム監査者（System Auditor）の権限を付けます。そのユーザーで、Read スコープのトークンを作ります。
 
-### 資材のディレクトリに入って実行する
+<details>
+<summary>admin のトークンを勧めない理由</summary>
 
-このツールはインストールせずに使うため、**資材を置いたディレクトリに入ってから実行します。** 別のディレクトリで実行すると、`No module named aapstats` というエラーになります。
-
-```
-cd /opt/aapstats
-python3 -m aapstats --help
-```
-
-### エイリアスでどこからでも実行できるようにする
-
-毎回ディレクトリを移動するのが手間なら、エイリアスを登録します。登録すると、どのディレクトリからでも `aapstats` だけで実行できます。
-
-```
-echo "alias aapstats='PYTHONPATH=/opt/aapstats python3 -m aapstats'" >> ~/.bashrc
-source ~/.bashrc
-aapstats --help
-```
-
-エイリアスを使うときは、次の 2 点に注意してください。
-
-- エイリアスが効くのは、ログインして手でコマンドを打つときだけです。シェルスクリプト、cron、`sudo` の後ろでは効きません。cron での書き方は「[cron で定期実行する](#cron-で定期実行する)」を参照してください。
-- `-o` で保存するファイルは、資材のディレクトリではなく、コマンドを実行したディレクトリに作られます。
-
-以降の例は `python3 -m aapstats` で書いています。エイリアスを登録した場合は、`aapstats` に読み替えてください。
-
-## 接続の設定
-
-このツールは、Linux サーバーの各ユーザーが使う前提です。接続先の設定と AAP のトークンは、サーバーに 1 つだけ置き、全ユーザーで共有します。手元に保存するジョブ履歴（`sync` で作る SQLite）は、ユーザーごとに作られます。
-
-| もの | 置き場所 | 持ち主 |
-|---|---|---|
-| 設定ファイル | `/etc/aapstats/config.ini` | 全ユーザーで共有 |
-| AAP のトークン | `/etc/aapstats/<プロファイル名>.token` | 全ユーザーで共有 |
-| ジョブ履歴 | `~/.local/share/aapstats/<プロファイル名>.sqlite` | ユーザーごと |
-
-### 管理者が行うこと
-
-**1. AAP でトークンを作る**
-
-このツール専用のユーザーを AAP に作り、システム監査者（System Auditor）の権限を付けてから、そのユーザーで Read スコープのトークンを作ることを勧めます。admin のトークンを使うこともできますが、次の 2 つの理由から勧めません。
+admin のトークンを使うこともできますが、次の 2 つの理由から勧めません。
 
 - admin のトークンは、Read スコープでも admin が見られるものをすべて読めます。トークンのファイルを読める Linux ユーザー全員が、その範囲を読めることになります。
 - 専用のユーザーにしておくと、AAP の操作の記録で、このツールからのアクセスだと見分けられます。
 
-**2. （任意）ツールを使うユーザーのグループを作る**
+</details>
 
-ツールが動くために必要なのは、実行したユーザーが設定ファイルとトークンのファイルを読めることだけです。グループは必須ではありません。
-
-グループを作るかどうかで、トークンを読めるユーザーの範囲が変わります。
-
-| | トークンを読めるユーザー | 設定ファイルとトークンの権限 |
-|---|---|---|
-| グループを作る | グループに入れたユーザーだけ | 640（持ち主の root とグループだけが読める） |
-| グループを作らない | **サーバーにログインできる全ユーザー** | 644（全ユーザーが読める） |
-
-グループを作らない場合、このツールを使わないユーザーも AAP のトークンを読めるようになり、そのトークンで AAP の API を読めます。サーバーにログインできるのが、ツールを使ってよい人だけであれば、グループを作らなくても問題ありません。そうでなければ、グループを作ることを勧めます。
-
-グループを作る場合は、次のコマンドを実行します。グループへの追加は、そのユーザーが次にログインしたときから有効になります。
-
-```
-sudo groupadd aapstats
-sudo usermod -aG aapstats <ユーザー名>    # ツールを使うユーザーごとに実行する
-```
-
-**3. 設定ファイルを置く**
-
-グループを作った場合:
-
-```
-sudo install -d -m 750 -g aapstats /etc/aapstats
-sudo install -m 640 -g aapstats /opt/aapstats/config.ini.example /etc/aapstats/config.ini
-sudo vi /etc/aapstats/config.ini
-```
-
-グループを作らない場合:
+### 4. 設定ファイルを置く
 
 ```
 sudo install -d -m 755 /etc/aapstats
@@ -146,18 +114,11 @@ host = https://aap-source.example.com
 token_file = /etc/aapstats/source.token
 ```
 
-**4. トークンを保存する**
+この手順では、設定ファイルとトークンを、サーバーにログインできる全ユーザーが読めるようにします。ツールを使うユーザーだけに絞りたい場合は、手順 4 と 5 の代わりに「[グループでトークンを読めるユーザーを絞る](#グループでトークンを読めるユーザーを絞る)」のコマンドを使います。
 
-最初に、決めた権限で空のファイルを作り、そこへ書き込みます。トークンを書き込んでから権限を変えると、その間だけ意図しないユーザーにも読める状態になるためです。`read -rs` で入力した値は画面に表示されず、シェルの履歴にも残りません。
+### 5. トークンを保存する
 
-グループを作った場合:
-
-```
-sudo install -m 640 -g aapstats /dev/null /etc/aapstats/source.token
-read -rs AAPTOK && printf '%s' "$AAPTOK" | sudo tee /etc/aapstats/source.token > /dev/null && unset AAPTOK
-```
-
-グループを作らない場合:
+最初に空のファイルを作り、そこへ書き込みます。`read -rs` で入力した値は画面に表示されず、シェルの履歴にも残りません。
 
 ```
 sudo install -m 644 /dev/null /etc/aapstats/source.token
@@ -166,51 +127,117 @@ read -rs AAPTOK && printf '%s' "$AAPTOK" | sudo tee /etc/aapstats/source.token >
 
 移行先（`[target]`）も使う場合は、同じ手順で `target.token` を作ります。
 
-### 各ユーザーが行うこと
+## 利用の準備（各ユーザーが行う）
+
+### 6. 共通の設定を指定して実行する
 
 共通の設定ファイルの場所を、環境変数 `AAPSTATS_CONFIG` で指定します。
 
 ```
 echo "export AAPSTATS_CONFIG=/etc/aapstats/config.ini" >> ~/.bashrc
 source ~/.bashrc
+```
+
+このツールはインストールせずに使うため、**資材のディレクトリに入ってから実行します。** 別のディレクトリで実行すると、`No module named aapstats` というエラーになります。
+
+```
 cd /opt/aapstats
 python3 -m aapstats --profile source info
 ```
 
 - `AAPSTATS_CONFIG` を設定しないと、ツールは自分のホームの `~/.config/aapstats/config.ini` を探します。
-- `~/.bashrc` は、cron やシェルスクリプトでは読まれません。cron での書き方は「[cron で定期実行する](#cron-で定期実行する)」を参照してください。
 - ジョブ履歴はユーザーごとに作られます。各ユーザーが `sync` すると、そのたびに AAP から履歴を取得するため、AAP の負荷はユーザーの数だけ増えます。履歴が多い場合は、初回の `sync` に `--since` を付けて、必要な期間だけを取得してください。
+- 毎回ディレクトリを移動するのが手間なら、「[エイリアスでどこからでも実行する](#エイリアスでどこからでも実行する)」を設定します。
 
-### 環境変数
+## 任意の設定
 
-設定ファイルの代わりに、環境変数で指定することもできます。
+### グループでトークンを読めるユーザーを絞る
 
-| 環境変数 | 内容 |
-|---|---|
-| `AAPSTATS_CONFIG` | 設定ファイルのパス（既定: `~/.config/aapstats/config.ini`） |
-| `AAPSTATS_DATA_DIR` | ジョブ履歴の保存先のディレクトリ（既定: `~/.local/share/aapstats`） |
-| `AAP_HOST` | 接続先の URL |
-| `AAP_TOKEN` / `AAP_TOKEN_FILE` | トークン / トークンを保存したファイル |
-| `AAP_USERNAME` / `AAP_PASSWORD` | ユーザー名 / パスワード |
-| `AAP_VERIFY_SSL` | `false` で証明書の検証を無効にする |
-| `AAP_CA_FILE` | CA 証明書のファイル |
+<details>
+<summary>手順を表示</summary>
 
-パスワードとトークンは、シェルの履歴に残らないよう、コマンドの引数では受け取りません。
+ツールが動くために必要なのは、実行したユーザーが設定ファイルとトークンのファイルを読めることだけです。グループは必須ではありません。グループを作るかどうかで、トークンを読めるユーザーの範囲が変わります。
 
-## cron で定期実行する
+| | トークンを読めるユーザー | 設定ファイルとトークンの権限 |
+|---|---|---|
+| グループを作らない（手順 4・5 のとおり） | **サーバーにログインできる全ユーザー** | 644（全ユーザーが読める） |
+| グループを作る（この手順） | グループに入れたユーザーだけ | 640（持ち主の root とグループだけが読める） |
+
+グループを作らない場合、このツールを使わないユーザーも AAP のトークンを読めるようになり、そのトークンで AAP の API を読めます。サーバーにログインできるのが、ツールを使ってよい人だけであれば、グループを作らなくても問題ありません。そうでなければ、グループを作ることを勧めます。
+
+**グループを作る**
+
+グループへの追加は、そのユーザーが次にログインしたときから有効になります。
+
+```
+sudo groupadd aapstats
+sudo usermod -aG aapstats <ユーザー名>    # ツールを使うユーザーごとに実行する
+```
+
+**設定ファイルを置く（手順 4 の代わり）**
+
+```
+sudo install -d -m 750 -g aapstats /etc/aapstats
+sudo install -m 640 -g aapstats /opt/aapstats/config.ini.example /etc/aapstats/config.ini
+sudo vi /etc/aapstats/config.ini
+```
+
+**トークンを保存する（手順 5 の代わり）**
+
+先に権限 640 の空のファイルを作ってから書き込みます。トークンを書き込んでから権限を変えると、その間だけ他のユーザーにも読める状態になるためです。
+
+```
+sudo install -m 640 -g aapstats /dev/null /etc/aapstats/source.token
+read -rs AAPTOK && printf '%s' "$AAPTOK" | sudo tee /etc/aapstats/source.token > /dev/null && unset AAPTOK
+```
+
+すでに手順 4・5 で置いたファイルを絞る場合は、権限を変えます。
+
+```
+sudo chgrp aapstats /etc/aapstats /etc/aapstats/*
+sudo chmod 750 /etc/aapstats
+sudo chmod 640 /etc/aapstats/*
+```
+
+</details>
+
+### エイリアスでどこからでも実行する
+
+<details>
+<summary>手順を表示</summary>
+
+エイリアスを登録すると、どのディレクトリからでも `aapstats` だけで実行できます。
+
+```
+echo "alias aapstats='PYTHONPATH=/opt/aapstats python3 -m aapstats'" >> ~/.bashrc
+source ~/.bashrc
+aapstats --help
+```
+
+エイリアスを使うときは、次の 2 点に注意してください。
+
+- エイリアスが効くのは、ログインして手でコマンドを打つときだけです。シェルスクリプト、cron、`sudo` の後ろでは効きません。cron での書き方は「[cron で定期実行する](#cron-で定期実行する)」を参照してください。
+- `-o` で保存するファイルは、資材のディレクトリではなく、コマンドを実行したディレクトリに作られます。
+
+</details>
+
+### cron で定期実行する
+
+<details>
+<summary>手順を表示</summary>
 
 AAP 側の古いジョブ履歴は、保持期間（初期値は 120 日）を過ぎると削除されます。`sync` を cron で毎晩実行しておくと、削除される前の履歴を手元に残し続けられます。
 
 cron では、エイリアスと `~/.bashrc` が使えません。そのため、共通の設定ファイルの場所（`AAPSTATS_CONFIG`）と資材の場所を、cron の行の中で指定します。書き方は次の 2 通りです。どちらも、`crontab -e` で各ユーザーの crontab に書きます。
 
-### 書き方 1：資材のディレクトリに移動してから実行する
+**書き方 1：資材のディレクトリに移動してから実行する**
 
 ```
 # 毎日 2:00 に、移行元の履歴を取得する
 0 2 * * * cd /opt/aapstats && AAPSTATS_CONFIG=/etc/aapstats/config.ini /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
 ```
 
-### 書き方 2：移動せず、フルパスで実行する
+**書き方 2：移動せず、フルパスで実行する**
 
 `PYTHONPATH` で資材の場所を指定すると、ディレクトリを移動しなくても実行できます。
 
@@ -231,7 +258,7 @@ PYTHONPATH=/opt/aapstats
 0 2 * * * /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
 ```
 
-### cron で気をつけること
+**cron で気をつけること**
 
 - **`python3` はフルパスで書きます。** cron の `PATH` は最小限（`/usr/bin:/bin`）です。`python3` の場所は `command -v python3` で確かめられます。RHEL では `/usr/bin/python3` です。
 - **`%` は `\%` と書きます。** crontab では `%` が改行の意味になるためです。上の例の `date +\%Y\%m\%d` がこれに当たります。
@@ -243,7 +270,47 @@ PYTHONPATH=/opt/aapstats
 0 2 * * * flock -n $HOME/.aapstats-sync.lock /usr/bin/python3 -m aapstats --profile source sync >> $HOME/aapstats-sync.log 2>&1
 ```
 
-## 使い方
+</details>
+
+### 資材を更新する
+
+<details>
+<summary>手順を表示</summary>
+
+新しい zip を展開し、`/opt/aapstats` を置き換えます。設定ファイル（`/etc/aapstats`）と各ユーザーのジョブ履歴（`~/.local/share/aapstats`）は資材のディレクトリの外にあるため、置き換えても消えません。
+
+```
+sudo unzip -q aap_stats-main.zip -d /tmp
+sudo rm -rf /opt/aapstats.old && sudo mv /opt/aapstats /opt/aapstats.old
+sudo mv /tmp/aap_stats-main /opt/aapstats
+```
+
+</details>
+
+### 環境変数で指定する
+
+<details>
+<summary>一覧を表示</summary>
+
+設定ファイルの代わりに、環境変数で指定することもできます。
+
+| 環境変数 | 内容 |
+|---|---|
+| `AAPSTATS_CONFIG` | 設定ファイルのパス（既定: `~/.config/aapstats/config.ini`） |
+| `AAPSTATS_DATA_DIR` | ジョブ履歴の保存先のディレクトリ（既定: `~/.local/share/aapstats`） |
+| `AAP_HOST` | 接続先の URL |
+| `AAP_TOKEN` / `AAP_TOKEN_FILE` | トークン / トークンを保存したファイル |
+| `AAP_USERNAME` / `AAP_PASSWORD` | ユーザー名 / パスワード |
+| `AAP_VERIFY_SSL` | `false` で証明書の検証を無効にする |
+| `AAP_CA_FILE` | CA 証明書のファイル |
+
+パスワードとトークンは、シェルの履歴に残らないよう、コマンドの引数では受け取りません。
+
+</details>
+
+## コマンドの使い方
+
+以降の例は、資材のディレクトリで `python3 -m aapstats` と打つ形で書いています。エイリアスを登録した場合は、`aapstats` に読み替えてください。
 
 ```
 python3 -m aapstats --profile source info
