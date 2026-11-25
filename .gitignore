@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# 認証情報・秘密鍵（テンプレートは除く）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+config.ini
+!config.ini.example
+
+# ツールの出力（お客様環境のデータを含むため共有しない）
+*.sqlite
+*.sqlite3
+*.db
+*.csv
+out/
+work/
+
+# エディタ・ローカル設定
+*.code-workspace
+.vscode/
+.idea/
+.claude/settings.local.json

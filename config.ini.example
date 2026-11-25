@@ -1,0 +1,23 @@
+# aapstats の設定ファイルの見本
+# ~/.config/aapstats/config.ini にコピーして使う（--config で別の場所も指定できる）
+# トークンは token_file で別ファイルに分け、権限を 600 にすることを勧める
+
+[source]
+# 移行元（AAP 2.5）
+host = https://aap-source.example.com
+token_file = ~/.config/aapstats/source.token
+verify_ssl = true
+# ca_file = /etc/pki/tls/certs/internal-ca.pem
+api_version = auto
+
+[target]
+# 移行先（AAP 2.6）
+host = https://aap-target.example.com
+token_file = ~/.config/aapstats/target.token
+api_version = auto
+
+# 任意の設定（省略時の既定値）
+# timezone = Asia/Tokyo
+# timeout = 60
+# max_workers = 4
+# request_interval = 0
